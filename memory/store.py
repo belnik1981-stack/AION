@@ -29,11 +29,18 @@ def get_recent_history(limit: int = 3) -> str:
     if not history or not isinstance(history, list):
         return "История пуста."
     recent = history[-limit:]
-    return "\n".join([f"Пользователь: {item['user']}\nAION: {item['ai']}" for item in recent])
+    formatted = []
+    for item in recent:
+        if isinstance(item, dict):
+            user_msg = item.get("user") or item.get("prompt") or ""
+            ai_msg = item.get("ai") or item.get("answer") or ""
+            if user_msg or ai_msg:
+                formatted.append(f"Пользователь: {user_msg}\nAION: {ai_msg}")
+    return "\n".join(formatted) if formatted else "История пуста."
 
 def get_long_term_knowledge() -> str:
     knowledge = _load_json(LONG_TERM_FILE)
-    if not knowledge or not isinstance(knowledge, dict):
+    if not isinstance(knowledge, dict):
         return "База знаний пуста."
     facts = knowledge.get("learned_lessons", [])
     return "\n".join([f"- {fact}" for fact in facts]) if facts else "Уроки отсутствуют."
