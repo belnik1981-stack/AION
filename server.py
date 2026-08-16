@@ -26,7 +26,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 </head>
 <body>
     <h2>AION Control Panel</h2>
-    
+
     <div class="card">
         <h3>[EXECUTE TASK]</h3>
         <form action="/run" method="POST">
@@ -54,10 +54,10 @@ class AionHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
-            
+
             limits = json.dumps(get_execution_limits(), indent=2, ensure_ascii=False)
             state = json.dumps(load_state(), indent=2, ensure_ascii=False)
-            
+
             html = HTML_TEMPLATE.replace("{{LIMITS}}", limits).replace("{{STATE}}", state)
             self.wfile.write(html.encode("utf-8"))
         else:
@@ -69,9 +69,9 @@ class AionHandler(BaseHTTPRequestHandler):
             content_length = int(self.headers.get('Content-Length', 0))
             post_data = self.rfile.read(content_length).decode('utf-8')
             parsed_data = urllib.parse.parse_qs(post_data)
-            
+
             user_prompt = parsed_data.get("user_prompt", [""])[0]
-            
+
             # Выполнение цикла ядра AION
             try:
                 run_cycle(user_prompt if user_prompt.strip() else None)
