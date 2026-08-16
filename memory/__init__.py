@@ -1,19 +1,16 @@
 """
-AION Memory API
-
-Публичный интерфейс подсистемы памяти.
+AION Memory Package
 """
-
 from .store import (
-    MemoryError,
-    load_memory,
-    save_memory,
-    memory_status,
+    add_episodic_event,
+    get_recent_history,
+    get_long_term_knowledge,
+    add_long_term_lesson,
 )
 
 __all__ = [
-    "MemoryError",
-    "load_memory",
-    "save_memory",
-    "memory_status",
+    "add_episodic_event",
+    "get_recent_history",
+    "get_long_term_knowledge",
+    "add_long_term_lesson",
 ]
