@@ -1,0 +1,22 @@
+version: "1.0"
+
+system:
+  name: "AION"
+  role: "Adaptive Intelligent Orchestration Network"
+
+principles:
+  - "Truth is separate from memory."
+  - "Memory cannot modify truth automatically."
+  - "Unverified knowledge cannot become truth automatically."
+  - "LLM output is an observation, not an authoritative system rule."
+  - "Architecture changes require explicit human action."
+  - "Every subsystem must have a defined responsibility."
+
+execution:
+  max_iterations: 3
+  timeout_seconds: 30
+
+memory:
+  episodic_is_mutable: true
+  long_term_requires_verification: true
+  truth_is_mutable_by_automation: false
