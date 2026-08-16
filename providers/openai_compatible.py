@@ -3,8 +3,6 @@ AION OpenAI-Compatible Provider
 
 Работает с API, совместимыми с форматом:
 POST /chat/completions
-
-Не содержит ключей внутри кода.
 """
 
 import json
@@ -24,143 +22,54 @@ class OpenAICompatibleProvider(BaseProvider):
         api_key=None,
         model=None,
         timeout=30,
+        max_tokens=1000,
     ):
         self.api_url = (
             api_url
-            or os.getenv("AION_API_URL", "")
-        ).strip()
-
-        self.api_key = (
-            api_key
-            or os.getenv("AION_API_KEY", "")
-        ).strip()
-
-        self.model = (
-            model
-            or os.getenv("AION_MODEL", "")
-        ).strip()
-
+            or os.getenv("AION_API_URL", "https://openrouter.ai/api/v1")
+        ).rstrip("/")
+        self.api_key = api_key or os.getenv("AION_API_KEY", "")
+        self.model = model or os.getenv("AION_MODEL", "google/gemini-2.5-flash")
         self.timeout = timeout
+        self.max_tokens = int(os.getenv("AION_MAX_TOKENS", max_tokens))
 
     def health(self) -> dict:
         return {
+            "status": "ok" if self.api_key else "missing_api_key",
             "provider": self.name,
-            "configured": bool(
-                self.api_url
-                and self.api_key
-                and self.model
-            ),
-            "model": self.model or None,
+            "model": self.model,
+            "max_tokens": self.max_tokens,
         }
 
     def ask(self, prompt: str) -> str:
-        if not isinstance(prompt, str):
-            raise ProviderError(
-                "prompt должен быть строкой"
-            )
-
-        prompt = prompt.strip()
-
-        if not prompt:
-            raise ProviderError(
-                "Пустой запрос"
-            )
-
-        if not self.api_url:
-            raise ProviderError(
-                "AION_API_URL не задан"
-            )
-
         if not self.api_key:
-            raise ProviderError(
-                "AION_API_KEY не задан"
-            )
+            raise ProviderError("API-ключ не найден в переменных окружения (AION_API_KEY).")
 
-        if not self.model:
-            raise ProviderError(
-                "AION_MODEL не задан"
-            )
-
+        endpoint = f"{self.api_url}/chat/completions"
         payload = {
             "model": self.model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt,
-                }
-            ],
-            "temperature": 0.2,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": self.max_tokens,
         }
 
-        request = Request(
-            self.api_url,
-            data=json.dumps(payload).encode("utf-8"),
-            method="POST",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": (
-                    f"Bearer {self.api_key}"
-                ),
-            },
-        )
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
 
         try:
-            with urlopen(
-                request,
-                timeout=self.timeout,
-            ) as response:
-
-                raw = response.read().decode(
-                    "utf-8"
-                )
-
-            data = json.loads(raw)
-
-            choices = data.get("choices")
-
-            if not choices:
-                raise ProviderError(
-                    "API не вернул choices"
-                )
-
-            message = choices[0].get(
-                "message",
-                {},
+            req = Request(
+                endpoint,
+                data=json.dumps(payload).encode("utf-8"),
+                headers=headers,
+                method="POST",
             )
-
-            content = message.get("content")
-
-            if content is None:
-                raise ProviderError(
-                    "API не вернул message.content"
-                )
-
-            return str(content).strip()
-
-        except HTTPError as exc:
-            try:
-                body = exc.read().decode(
-                    "utf-8",
-                    errors="replace",
-                )
-            except Exception:
-                body = ""
-
-            raise ProviderError(
-                f"HTTP {exc.code}: {body[:500]}"
-            ) from exc
-
-        except URLError as exc:
-            raise ProviderError(
-                f"Сетевая ошибка: {exc}"
-            ) from exc
-
-        except json.JSONDecodeError as exc:
-            raise ProviderError(
-                "API вернул некорректный JSON"
-            ) from exc
-
-        except TimeoutError as exc:
-            raise ProviderError(
-                "Превышено время ожидания"
-            ) from exc
+            with urlopen(req, timeout=self.timeout) as response:
+                raw = response.read().decode("utf-8")
+                data = json.loads(raw)
+                return data["choices"][0]["message"]["content"]
+        except HTTPError as e:
+            err_body = e.read().decode("utf-8", errors="ignore")
+            raise ProviderError(f"HTTP {e.code}: {err_body}") from e
+        except Exception as e:
+            raise ProviderError(f"Ошибка запроса: {str(e)}") from e
