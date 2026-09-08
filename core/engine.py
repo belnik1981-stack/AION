@@ -66,8 +66,13 @@ def build_prompt(state: dict, user_input: str | None = None) -> str:
     return validate_text(prompt, limits["max_prompt_chars"], "prompt")
 
 
-def run_cycle(user_input: str | None = None) -> dict:
+def run_cycle(user_input: str) -> dict:
     limits = get_execution_limits()
+    user_input = validate_text(
+        user_input,
+        limits["max_input_chars"],
+        "user input",
+    )
     budget = ExecutionBudget(
         max_api_calls=1,
         max_total_seconds=limits["max_total_seconds"],
@@ -75,7 +80,7 @@ def run_cycle(user_input: str | None = None) -> dict:
     state = load_state()
     prompt = build_prompt(state, user_input)
     event_id = uuid4().hex
-    task_hash = fingerprint_text(user_input or "<state-continuation>")
+    task_hash = fingerprint_text(user_input)
 
     append_audit_event(
         "single_cycle_started",
@@ -94,8 +99,7 @@ def run_cycle(user_input: str | None = None) -> dict:
         raise
 
     state["last_run"] = datetime.now(timezone.utc).isoformat()
-    if user_input is not None:
-        state["last_user_prompt"] = user_input
+    state["last_user_prompt"] = user_input
     state["last_answer"] = answer
     state["status"] = "idle"
     state["execution"] = budget.snapshot()

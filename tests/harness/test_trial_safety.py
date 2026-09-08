@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
 
 import server
 from core.execution import ExecutionBudget, ExecutionLimitError
+from core.engine import run_cycle
 from core.llm import ask_llm
 from core.pipeline import run_pipeline
 from core.truth import get_execution_limits
@@ -69,6 +70,15 @@ assert len(fake.calls) == 5
 assert len(fake.calls) <= get_execution_limits()["max_api_calls"]
 assert {path: digest(path) for path in TRUTH_FILES} == truth_before
 assert digest(LEGACY_STATE) == legacy_state_before
+
+with patch("core.engine.ask_llm") as unexpected_call:
+    try:
+        run_cycle(None)
+    except (TypeError, ValueError):
+        pass
+    else:
+        raise AssertionError("Single cycle accepted an implicit empty task")
+    unexpected_call.assert_not_called()
 
 one_call_budget = ExecutionBudget(max_api_calls=1, max_total_seconds=10)
 with patch("core.llm.create_provider", return_value=fake):

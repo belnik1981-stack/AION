@@ -1,88 +1,22 @@
-=== СТРУКТУРА ПРОЕКТА AION ===
-./knowledge/episodic/history.json
-./logs
-./.git/logs
+SUPERSEDED PROJECT SUMMARY — 2026-09-08
 
-=== СМЫСЛОВАЯ СТРУКТУРА КЛЮЧЕВЫХ ФАЙЛОВ ===
+This file previously contained a generated snapshot of old source code and mutable
+state. It is retained only as a stable filename so old links do not silently point
+to active instructions.
 
---- Файл: main.py (Первые 40 строк) ---
-from core.engine import run_cycle
+Do not use commands or code from older revisions of this file.
 
-if __name__ == "__main__":
-    run_cycle()
+Current authoritative project state:
+- docs/PROJECT_STATE.md
 
---- Файл: server.py (Первые 40 строк) ---
-import json
-import os
-import urllib.parse
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from pathlib import Path
+Current first-cloud-trial procedure:
+- docs/TRIAL_RUNBOOK_CLOUD_TERMUX.md
 
-from core.truth import load_truth, get_execution_limits
-from core.engine import load_state, run_cycle
+Accepted trial boundary:
+- docs/adr/0001-cloud-trial-safety-boundary.md
 
-PORT = 8080
-HTML_TEMPLATE = """<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AION Interactive Control</title>
-    <style>
-        body { font-family: monospace; background: #121212; color: #00ff66; padding: 15px; margin: 0; }
-        h2 { color: #ffffff; border-bottom: 1px solid #00ff66; padding-bottom: 5px; }
-        .card { background: #1e1e1e; border: 1px solid #333; padding: 12px; margin-bottom: 15px; border-radius: 6px; }
-        pre { white-space: pre-wrap; word-wrap: break-word; color: #cccccc; font-size: 13px; }
-        textarea { width: 100%; height: 80px; background: #0d0d0d; color: #00ff66; border: 1px solid #00ff66; border-radius: 4px; padding: 8px; box-sizing: border-box; font-family: monospace; margin-bottom: 10px; }
-        button { background: #00ff66; color: #000; border: none; padding: 12px 20px; font-weight: bold; cursor: pointer; border-radius: 4px; width: 100%; font-size: 14px; }
-        button:hover { background: #00cc55; }
-    </style>
-</head>
-<body>
-    <h2>AION Control Panel</h2>
+Active trial branch:
+- trial-readiness-2026-09-08
 
-    <div class="card">
-        <h3>[EXECUTE TASK]</h3>
-        <form action="/run" method="POST">
-            <textarea name="user_prompt" placeholder="Введите задачу или инструкцию для AION..."></textarea>
-            <button type="submit">Запустить цикл AION</button>
-        </form>
-    </div>
-
-    <div class="card">
-        <h3>[CURRENT STATE / LAST RESPONSE]</h3>
-        <pre>{{STATE}}</pre>
-
---- Файл: state.json (Первые 40 строк) ---
-{
-  "name": "AION",
-  "version": "0.2.0",
-  "status": "idle",
-  "architecture": "truth_controlled",
-  "max_iterations": 3,
-  "timeout_seconds": 30,
-  "last_run": "2026-08-16T05:46:58.862644",
-  "last_answer": "Исходя из вашего вопроса и предыдущих пояснений:\n\nДа, **создание собственной модели, основанной на доступных бесплатных (или open-source) моделях, с возможностью приоритетного самообучения и корректировки по релевантности, вполне возможно**.\n\nДавайте разберем это по частям:\n\n1.  **\"На основе доступных бесплатных моделей\"**: Существует большое количество открытых (open-source) больших языковых моделей, таких как различные версии LLaMA (от Meta), Mistral, Falcon и многие другие. Эти модели доступны для скачивания и использования, что позволяет разработчикам брать их за основу.\n\n2.  **\"Создание собственной модели\"**: Вы можете взять одну из таких открытых моделей и дообучить её (процесс, известный как \"fine-tuning\") на своих собственных данных. Это позволяет \"специализировать\" модель под конкретные задачи, домен знаний или стиль общения, который вам необходим.\n\n3.  **\"Чтобы она имела свои приоритеты по самообучению с учетом базовой обученной\"**:\n    *   **\"С учетом базовой обученной\"**: При дообучении модель сохраняет общие знания и языковые способности, полученные в ходе ее первоначального (базового) обучения. Вы не начинаете с нуля.\n    *   **\"Свои приоритеты по самообучению\"**: Через выбор данных для дообучения и настройку процесса обучения, вы можете задать \"приоритеты\". Например, если вы дообучаете модель на юридических документах, она станет более компетентной в юриспруденции. Если на медицинских статьях – в медицине. Это и есть задание приоритетов.\n    *   Важно отметить, что в текущем понимании \"самообучение\" для таких моделей обычно означает дальнейшее дообучение на новых данных, а не полностью автономное изменение базовой архитектуры или параметров без внешнего вмешательства.\n\n4.  **\"Но возможностью корректирования по релевантности\"**:\n    *   **На этапе дообучения**: Вы можете вручную или с помощью автоматизированных методов отбирать данные, которые считаете наиболее релевантными для вашей задачи.\n    *   **После дообучения**: Даже после создания вашей \"собственной\" модели, вы можете продолжать её итеративно улучшать. Например, собирать отзывы пользователей о релевантности ответов и использовать эти отзывы (как положительные, так и отрицательные) для дальнейшего дообучения или корректировки поведения модели. Это может включать методы обучения с подкреплением на основе человеческой обратной связи (RLHF - Reinforcement Learning from Human Feedback), которые помогают модели лучше соответствовать предпочтениям пользователя.\n\n**Пример сценария:**\n\nПредставьте, что вы хотите создать чат-бота для клиентской поддержки вашей специфической компании.\n*   Вы берете открытую модель (например, LLaMA).\n*   Собираете базу данных ваших документов, FAQ, истории чатов с клиентами.\n*   Дообучаете LLaMA на этих данных.\n*   Получаете собственную модель, которая теперь \"знает\" о вашей компании, ее продуктах и специфике ответов.\n*   Затем вы можете собирать оценки пользователей о качестве ответов этого бота и использовать их для дальнейших итераций дообучения, чтобы модель постоянно \"корректировалась по релевантности\" запросам ваших клиентов.\n\nТаким образом, да, это реальный и активно развивающийся подход в области искусственного интеллекта.",
-  "last_user_prompt": "А на основе доступных бесплатных моделей возможно создание собствнной модели , чтобы она имела свои приоритеты по самообучению с учетом базовой обученой но возможностью коректирования по релеаантности "
-}
---- Файл: start_app.sh (Первые 40 строк) ---
-#!/bin/sh
-cd ~/AION
-export PYTHONPATH=.
-
-if [ -z "$AION_API_KEY" ]; then
-    KEY_FOUND=$(grep -rohE "sk-or-v1-[A-Za-z0-9_-]+" ~ 2>/dev/null | head -n 1)
-    if [ -n "$KEY_FOUND" ]; then
-        export AION_API_KEY="$KEY_FOUND"
-    fi
-fi
-
-export AION_PROVIDER="openai_compatible"
-export AION_API_URL="https://openrouter.ai/api/v1"
-export AION_MODEL="google/gemini-2.5-flash"
-export AION_MAX_TOKENS=1000
-
-echo "[AION] API Key Loaded: $( [ -n "$AION_API_KEY" ] && echo 'YES' || echo 'NO' )"
-echo "[AION] Web UI: http://localhost:8080"
-
-~/testenv/bin/python server.py
+The agents-sdk-adapter-20260908 branch and EGDE runtime integration remain outside
+the first trial boundary.
