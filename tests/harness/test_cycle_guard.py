@@ -29,4 +29,18 @@ if __name__ == "__main__":
     third = revisit.observe("step", "A")
     check("revisited state blocked", third.cycle_detected is True)
 
+    interpretation = CycleGuard()
+    interpretation.observe(
+        "decision",
+        "Источник недостаточно надежен, требуется дополнительная проверка.",
+        semantic_key="source_needs_more_verification",
+    )
+    same_meaning = interpretation.observe(
+        "decision",
+        "Надежность источника сомнительна, поэтому его нужно проверить снова.",
+        semantic_key="source_needs_more_verification",
+    )
+    check("same interpretation with different wording blocked", same_meaning.cycle_detected is True)
+    check("same interpretation classified", same_meaning.cycle_type == "same_interpretation")
+
     print("CYCLE GUARD TEST: PASS")
