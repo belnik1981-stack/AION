@@ -31,6 +31,8 @@ def main() -> None:
 
     promote = sub.add_parser("promote")
     promote.add_argument("verification_json", help="Path to verification record JSON")
+    promote.add_argument("--confirm", action="store_true", help="Explicitly authorize promotion")
+    promote.add_argument("--reviewed-by", required=False, help="Human reviewer identifier")
 
     args = parser.parse_args()
 
@@ -47,8 +49,13 @@ def main() -> None:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return
 
+    if not args.confirm:
+        raise SystemExit("Promotion blocked: pass --confirm after reviewing the verification record")
+    if not args.reviewed_by or not args.reviewed_by.strip():
+        raise SystemExit("Promotion blocked: --reviewed-by is required")
+
     record = json.loads(Path(args.verification_json).read_text(encoding="utf-8"))
-    result = promote_verified_claim(record)
+    result = promote_verified_claim(record, reviewed_by=args.reviewed_by)
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
