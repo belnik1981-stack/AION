@@ -1,0 +1,43 @@
+name: AION offline cloud trial
+
+on:
+  push:
+    branches:
+      - trial-readiness-2026-09-08
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aion-offline-trial-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bounded-offline-trial:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install pinned dependency
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Compile all Python files
+        run: python -m compileall -q .
+      - name: Run preflight without a network provider
+        env:
+          AION_PROVIDER: mock
+        run: python -m core.diagnostics
+      - name: Run architecture harness
+        run: python tests/harness/test_current_architecture.py
+      - name: Run negative safety harness
+        run: python tests/harness/test_trial_safety.py
+      - name: Run end-to-end loopback cloud smoke
+        run: python tests/harness/cloud_smoke.py
+      - name: Verify Truth files stayed unchanged
+        run: git diff --exit-code -- knowledge/truth

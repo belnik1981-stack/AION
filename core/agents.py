@@ -1,12 +1,9 @@
-"""
-AION Agent Roles (TMAO-style pipeline agents)
+"""Bounded role prompts for the AION trial pipeline."""
+from __future__ import annotations
 
-Каждая роль — это разное построение prompt для одного и того же
-LLM Gateway (core.llm.ask_llm). Новых HTTP-клиентов не создаётся:
-провайдер, ключ и timeout остаются едиными для всей системы.
-"""
-
+from core.execution import ExecutionBudget, ExecutionLimitError
 from core.llm import ask_llm
+from providers.base import ProviderError
 
 ROLE_INSTRUCTIONS = {
     "planner": (
@@ -15,57 +12,72 @@ ROLE_INSTRUCTIONS = {
     ),
     "analyst": (
         "Ты — Analyst. На основе плана и задачи проведи детальный анализ. "
-        "Проверь факты, логику и структуру."
+        "Отделяй проверенные факты от предположений."
     ),
     "critic": (
-        "Ты — Critic. Найди ошибки, противоречия и слабые места в материале. "
-        "Если всё корректно — напиши 'OK'. Если есть проблемы — опиши их кратко."
+        "Ты — Critic. Найди ошибки, противоречия и слабые места. "
+        "Если всё корректно — напиши 'OK'."
     ),
     "synthesizer": (
-        "Ты — Synthesizer. Собери финальный, полный и понятный ответ "
-        "на основе плана, анализа и критики. Будь чётким и структурированным."
+        "Ты — Synthesizer. Собери итоговый ответ на основе плана, анализа "
+        "и критики. Не превращай неподтверждённые утверждения в факты."
     ),
 }
 
 
-def _ask(role: str, content: str) -> str:
+def _ask(role: str, content: str, budget: ExecutionBudget) -> str:
     prompt = f"{ROLE_INSTRUCTIONS[role]}\n\n{content}"
     try:
-        return ask_llm(prompt).strip()
-    except Exception as e:
-        return f"[ОШИБКА:{role}] {e}"
+        return ask_llm(prompt, budget=budget).strip()
+    except ExecutionLimitError:
+        raise
+    except ProviderError as exc:
+        return f"[ОШИБКА:{role}] {exc}"
+    except Exception:
+        return f"[ОШИБКА:{role}] internal_error"
 
 
-def planner(task: str) -> str:
-    return _ask("planner", f"Задача пользователя:\n{task}")
+def planner(task: str, budget: ExecutionBudget) -> str:
+    return _ask("planner", f"Задача пользователя:\n{task}", budget)
 
 
-def analyst(task: str, plan: str) -> str:
-    content = f"Исходная задача:\n{task}\n\nПлан:\n{plan}\n\nПроведи детальный анализ."
-    return _ask("analyst", content)
+def analyst(task: str, plan: str, budget: ExecutionBudget) -> str:
+    content = f"Исходная задача:\n{task}\n\nПлан:\n{plan}\n\nПроведи анализ."
+    return _ask("analyst", content, budget)
 
 
-def critic(task: str, plan: str, analysis: str) -> str:
+def critic(task: str, plan: str, analysis: str, budget: ExecutionBudget) -> str:
     content = (
-        f"Исходная задача:\n{task}\n\nПлан:\n{plan}\n\nАнализ:\n{analysis}\n\n"
-        "Найди ошибки и слабые места."
+        f"Исходная задача:\n{task}\n\nПлан:\n{plan}\n\n"
+        f"Анализ:\n{analysis}\n\nНайди ошибки и слабые места."
     )
-    return _ask("critic", content)
+    return _ask("critic", content, budget)
 
 
-def synthesizer(task: str, plan: str, analysis: str, criticism: str) -> str:
+def synthesizer(
+    task: str,
+    plan: str,
+    analysis: str,
+    criticism: str,
+    budget: ExecutionBudget,
+) -> str:
     content = (
-        f"Исходная задача:\n{task}\n\nПлан:\n{plan}\n\nАнализ:\n{analysis}\n\n"
-        f"Критика:\n{criticism}\n\nСобери финальный ответ для пользователя."
+        f"Исходная задача:\n{task}\n\nПлан:\n{plan}\n\n"
+        f"Анализ:\n{analysis}\n\nКритика:\n{criticism}\n\n"
+        "Собери финальный ответ для пользователя."
     )
-    return _ask("synthesizer", content)
+    return _ask("synthesizer", content, budget)
 
 
-def final_critic_check(task: str, final_answer: str) -> tuple:
+def final_critic_check(
+    task: str,
+    final_answer: str,
+    budget: ExecutionBudget,
+) -> tuple[bool, str]:
     content = (
         f"Задача пользователя:\n{task}\n\nФинальный ответ:\n{final_answer}\n\n"
-        "Оцени финальный ответ. Если всё корректно — напиши 'OK'. Если есть проблемы — опиши их."
+        "Оцени финальный ответ. Если всё корректно — напиши 'OK'. "
+        "Если есть проблемы — опиши их."
     )
-    critique = _ask("critic", content)
-    is_ok = critique.strip().upper().startswith("OK")
-    return is_ok, critique
+    critique = _ask("critic", content, budget)
+    return critique.strip().upper().startswith("OK"), critique

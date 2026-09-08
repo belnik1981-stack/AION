@@ -1,67 +1,25 @@
 # AION
 
-Версия: 0.1.0
+Version: 0.3 trial  
+Status: bounded cloud-trial preparation
 
-Статус: Проектирование
+AION is a modular AI orchestration prototype developed for Android and Termux control. The current trial branch prioritizes explicit execution limits, provider independence, separation of Truth from mutable memory and reproducible tests.
 
----
+## Current execution paths
 
-## Назначение
+- trial_cli.py single — one bounded provider request from a UTF-8 prompt file.
+- trial_cli.py pipeline — bounded Planner, Analyst, Critic and Synthesizer flow.
+- server.py — loopback-only control page; remote use requires an SSH tunnel.
+- AION_PROVIDER=mock — deterministic no-network test path.
 
-AION — это модульная AI-система, разрабатываемая на смартфоне Android (Termux), ориентированная на долгосрочную устойчивость, расширяемость и независимость от конкретной модели искусственного интеллекта.
+## Mandatory order
 
----
+1. Run the offline workflow and local harnesses.
+2. Review the recorded limits and Truth checksums.
+3. Make one supervised live provider call.
+4. Stop on any failed invariant.
+5. Do not merge into master until the result is reviewed.
 
-## Главные цели
+The exact commands and acceptance criteria are in docs/TRIAL_RUNBOOK_CLOUD_TERMUX.md. The trial architecture decision is in docs/adr/0001-cloud-trial-safety-boundary.md. The current verified state is in docs/PROJECT_STATE.md.
 
-- Создать архитектуру, которую можно развивать годами.
-- Минимизировать вероятность ошибок за счёт инженерных принципов.
-- Сделать проект переносимым между различными LLM.
-- Использовать Git как источник истории изменений.
-- Документация имеет приоритет над реализацией.
-
----
-
-## Основные принципы
-
-1. Архитектура важнее скорости.
-2. Любое изменение должно быть обратимым.
-3. Перед изменением проводится проверка.
-4. После изменения выполняется проверка результата.
-5. Любое архитектурное решение документируется.
-6. Минимум внешних зависимостей.
-7. Простота важнее сложности.
-8. Код не должен существовать без понятной цели.
-
----
-
-## Структура проекта
-
-archive/   — контрольные точки и резервные копии
-
-core/      — ядро системы
-
-docs/      — документация проекта
-
-workspace/ — рабочая область для разработки
-
----
-
-## Текущий этап
-
-Создание архитектурного фундамента.
-
----
-
-## Следующая задача
-
-Создание Конституции проекта.
-
----
-
-Последнее обновление:
-
-CP-006
-cat > ~/AION/docs/README.md
-cat ~/AION/docs/README.md
-
+The divergent agents-sdk-adapter-20260908 branch and EGDE runtime integration are outside this trial boundary.

@@ -1,22 +1,20 @@
-"""
-AION LLM Gateway
+"""Single bounded LLM gateway for AION."""
+from __future__ import annotations
 
-Engine обращается только к этому модулю.
-Конкретный провайдер выбирается через registry.
-"""
-
+from core.execution import ExecutionBudget, validate_text
+from core.truth import get_execution_limits
 from providers.registry import create_provider
 
 
-def ask_llm(prompt: str) -> str:
-    """Единая точка запроса к LLM."""
-
-    provider = create_provider()
+def ask_llm(prompt: str, budget: ExecutionBudget | None = None) -> str:
+    limits = get_execution_limits()
+    prompt = validate_text(prompt, limits["max_prompt_chars"], "prompt")
+    timeout = float(limits["timeout_seconds"])
+    if budget is not None:
+        timeout = budget.acquire(timeout)
+    provider = create_provider(timeout=timeout)
     return provider.ask(prompt)
 
 
 def llm_status() -> dict:
-    """Безопасный статус LLM без вывода API-ключа."""
-
-    provider = create_provider()
-    return provider.health()
+    return create_provider().health()

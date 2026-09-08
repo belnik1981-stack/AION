@@ -1,10 +1,11 @@
 __pycache__/
-*.db
-logs/
-
-# Runtime / temporary files
-*.bak
-__pycache__/
 *.pyc
+*.db
+*.jsonl
 .env
 .env.*
+.venv/
+logs/
+runtime/
+pipeline_state.json
+*.bak

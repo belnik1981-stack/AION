@@ -1,264 +1,65 @@
-# PROJECT STATE
-## Философия здорового сообщества / AION
+# PROJECT CHECKPOINT — AION cloud trial preparation
 
-> Контрольная точка проекта.
-> Этот документ фиксирует подтверждённое состояние системы,
-> принятые решения и ближайший следующий шаг.
-> Не заменяет инструкции проекта.
+Date: 2026-09-08  
+Project / branch: AION / trial-readiness-2026-09-08  
+Audited base commit: b509ef540318f87cf33a03c53091c2a66b3c4647  
+Current phase: minimal safety implementation after completed READ-ONLY audit
 
----
+## Verdict
 
-## 1. Цель
+NOT READY until the new offline cloud workflow completes successfully. If it passes, the branch becomes READY WITH CONDITIONS for one manually supervised live provider call.
 
-Постепенно проверить, какие элементы концепции здорового
-и постдефицитного общества могут быть:
+## Confirmed
 
-формализованы → измерены → смоделированы → реализованы →
-проверены → масштабированы.
+- FACT — master remains at 540957cc3114f060dadeec90284b2366fb81183e.
+- FACT — trial-readiness-2026-09-08 was three commits ahead of master at the audit point.
+- FACT — agents-sdk-adapter-20260908 diverges from the trial branch and carries 23 separate commits; it is excluded from this test.
+- VERIFIED — actual flow is Engine or Pipeline → core.llm → providers.registry → provider → external API.
+- VERIFIED — provider configuration comes from AION_PROVIDER, AION_API_URL, AION_API_KEY, AION_MODEL and bounded non-secret limits.
+- VERIFIED — the old provider layer had a per-request timeout but no enforced total API-call budget or workflow deadline.
+- VERIFIED — the old server inserted stored values into HTML without escaping and had no request-size or CSRF boundary.
+- VERIFIED — the supplied AION/EGDE research archive contains documentation and provenance material, not a replacement current runtime tree.
 
-AION рассматривается как один из технических инструментов
-практической проверки этой концепции.
+## Decision
 
----
+- DECISION — freeze the first trial to the trial-readiness branch and the boundary in docs/adr/0001-cloud-trial-safety-boundary.md.
+- DECISION — use the mock provider for the first end-to-end cloud run.
+- DECISION — keep the UI loopback-only and access it through an SSH port forward.
+- DECISION — keep EGDE runtime integration and the Agents SDK branch outside this test.
 
-## 2. Рабочий протокол
+## Implemented, awaiting observed workflow result
 
-Текущий инженерный протокол AION:
+- explicit API-call, iteration, time, prompt, request, token and response-size limits;
+- private ignored runtime state and audit path;
+- sanitized provider failures;
+- mock provider;
+- loopback Host and bind checks, CSRF token and HTML escaping;
+- pinned PyYAML dependency;
+- offline architecture, negative safety and end-to-end server smoke tests;
+- a five-minute GitHub Actions cloud job with read-only repository permission;
+- Android plus Termux cloud runbook.
 
-READ-ONLY статический аудит
-→ карта существующей архитектуры
-→ целевая архитектура
-→ архитектурная заморозка
-→ реализация
-→ тестирование
-→ интеграция.
+## Open
 
-До завершения READ-ONLY аудита архитектуру не объединять
-и не изменять без необходимости.
+- OPEN — the workflow result for the implementation commit.
+- OPEN — one real provider call using a test-limited credential.
+- OPEN — actual cloud host identity, OS, Python version and SSH account.
+- OPEN — review and possible reconciliation of the divergent Agents SDK branch.
+- OPEN — architecture freeze for EGDE integration; ADR-001 freezes only the first trial boundary.
 
----
+## Do not count as complete
 
-## 3. Подтверждённое состояние AION
+- factual-quality validation;
+- evidence-weighted consensus;
+- production authentication or public web exposure;
+- provider availability, free-model stability or terms;
+- long-running autonomous operation;
+- merge into master.
 
-### Core
+## Last successful test
 
-Существуют:
+The prior test_current_architecture.py harness passed without a real API call according to the earlier branch work. The new safety and cloud tests have not yet produced observed CI evidence.
 
-- core/engine.py
-- core/llm.py
-- core/truth.py
-- core/diagnostics.py
-- core/version.py
+## Next action
 
-### Execution flow
-
-Подтверждена цепочка:
-
-Engine
-→ LLM Gateway
-→ Provider Registry
-→ Provider
-→ внешний LLM API.
-
-`core/llm.py` является единой точкой обращения Engine к LLM.
-
-### Truth layer
-
-Существуют:
-
-- knowledge/truth/truth.json
-- knowledge/truth/system.yaml
-
-`core/truth.py` предоставляет:
-
-- load_truth()
-- load_system()
-- get_principles()
-- get_execution_limits()
-- truth_status()
-
-Truth читается рабочим ядром.
-
-Автоматическая запись Truth не предусмотрена.
-
-### Проверено
-
-Успешно выполнено:
-
-- Python compile для core/truth.py и core/engine.py;
-- загрузка принципов;
-- загрузка execution limits;
-- truth_status();
-- load_state();
-- build_prompt().
-
-Текущие limits:
-
-- max_iterations = 3
-- timeout_seconds = 30
-
----
-
-## 4. Подтверждённая архитектура
-
-Engine:
-
-- загружает state;
-- читает Truth;
-- строит prompt;
-- вызывает LLM;
-- сохраняет результат.
-
-Engine не должен изменять Truth.
-
-LLM Gateway:
-
-`core/llm.py → providers.registry.create_provider()`
-
-Provider:
-
-`OpenAICompatibleProvider`
-
-Использует:
-
-- AION_API_URL
-- AION_API_KEY
-- AION_MODEL
-
-API-ключ не хранится в коде.
-
----
-
-## 5. Обнаруженные проблемы
-
-### P-001 — max_iterations пока декларативен
-
-Truth содержит:
-
-`max_iterations = 3`
-
-Engine передаёт значение в state и prompt.
-
-Но реального механизма, ограничивающего количество итераций,
-в Engine пока не обнаружено.
-
-Следовательно:
-
-`max_iterations` пока не является enforced safety control.
-
-Статус: OPEN.
-
-### P-002 — timeout не связан с Truth
-
-Truth содержит:
-
-`timeout_seconds = 30`
-
-Provider имеет собственный:
-
-`timeout = 30`
-
-и передаёт его в `urlopen()`.
-
-Но Provider пока не получает timeout непосредственно
-из Truth.
-
-Следовательно, два значения совпадают случайно,
-а не вследствие единого источника конфигурации.
-
-Статус: OPEN.
-
-### P-003 — provider audit не завершён
-
-Необходимо проверить:
-
-- providers/base.py
-- providers/registry.py
-
-После этого завершить карту provider-слоя.
-
-Статус: OPEN.
-
----
-
-## 6. Что пока НЕ следует делать
-
-До завершения текущего READ-ONLY аудита:
-
-- не объединять архитектуру наугад;
-- не переносить компоненты между проектами;
-- не менять execution model;
-- не считать prompt ограничителем безопасности;
-- не считать max_iterations реально enforced;
-- не считать timeout из Truth реально enforced;
-- не проводить массовый рефакторинг.
-
----
-
-## 7. Текущая стадия
-
-READ-ONLY STATIC AUDIT
-
-Truth layer — частично реализован и проверен.
-
-Execution-control — обнаружены архитектурные разрывы.
-
-Provider-layer — аудит продолжается.
-
-Архитектурная заморозка ещё НЕ выполнена.
-
----
-
-## 8. Следующий шаг
-
-Проверить:
-
-1. providers/base.py
-2. providers/registry.py
-
-Затем обновить архитектурную карту.
-
-После завершения полного READ-ONLY аудита:
-
-→ сформировать целевую архитектуру;
-→ оформить Architecture Decision Record;
-→ заморозить архитектуру;
-→ только затем переходить к реализации.
-
----
-
-## 9. Правило достоверности
-
-Статусы:
-
-FACT — подтверждено кодом/тестом/источником.
-
-DECISION — принято архитектурное решение.
-
-HYPOTHESIS — рабочая гипотеза.
-
-OPEN — вопрос требует проверки.
-
-UNKNOWN — данных недостаточно.
-
-Нельзя превращать HYPOTHESIS или OPEN в FACT без проверки.
-
----
-
-## 10. Последняя контрольная точка
-
-Последний подтверждённый результат:
-
-get_principles() работает.
-get_execution_limits() работает.
-truth_status() работает.
-build_prompt() работает.
-
-Последнее обнаружение:
-
-max_iterations и timeout_seconds пока не имеют
-полного runtime enforcement.
-
-Следующее действие:
-
-READ-ONLY inspection providers/base.py и providers/registry.py.
+Observe the first workflow run. Completion criterion: compile, diagnostics, architecture harness, negative safety harness, loopback cloud smoke and Truth-diff check all pass on the same commit.
