@@ -1,5 +1,10 @@
 import json
+import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from core.engine import build_prompt, load_state
 from core.truth import (
@@ -8,8 +13,6 @@ from core.truth import (
     truth_status,
 )
 from tests.harness.mock_provider import MockProvider
-
-ROOT = Path(__file__).resolve().parents[2]
 
 
 def check(name, condition):

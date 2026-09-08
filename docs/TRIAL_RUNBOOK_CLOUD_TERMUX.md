@@ -43,6 +43,7 @@ Run from the AION directory on the cloud host:
 
     export AION_PROVIDER=mock
     export AION_RUNTIME_DIR="$PWD/runtime"
+    export PYTHONPATH="$PWD"
     python -m core.diagnostics
     python -m compileall -q .
     python tests/harness/test_current_architecture.py

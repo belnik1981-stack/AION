@@ -3,9 +3,14 @@ from __future__ import annotations
 
 import hashlib
 import io
+import sys
 from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 import server
 from core.execution import ExecutionBudget, ExecutionLimitError
@@ -15,7 +20,6 @@ from core.truth import get_execution_limits
 from providers.base import ProviderError
 from providers.openai_compatible import OpenAICompatibleProvider
 
-ROOT = Path(__file__).resolve().parents[2]
 TRUTH_FILES = [
     ROOT / "knowledge" / "truth" / "truth.json",
     ROOT / "knowledge" / "truth" / "system.yaml",
