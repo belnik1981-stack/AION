@@ -24,7 +24,14 @@ ROLE_INSTRUCTIONS = {
     ),
     "critic": (
         "Ты — Critic. Найди только реальные ошибки, противоречия, пропуски и обрывы. "
-        "Если существенных дефектов нет — ответь ровно 'OK'."
+        "Если существенных дефектов нет — ответь ровно 'OK'. "
+        "Если есть — максимум 3 коротких пункта без длинных объяснений."
+    ),
+    "verifier": (
+        "Ты — Final Verifier. Верни строго ОДНУ строку и ничего больше. "
+        "Разрешены только два формата: 'OK' или "
+        "'FAIL: причина 1; причина 2; причина 3'. "
+        "Не более 60 слов. Никаких заголовков, цитат, таблиц и повторения ответа пользователя."
     ),
     "synthesizer": (
         "Ты — Synthesizer. Сформируй завершённый финальный ответ. "
@@ -42,6 +49,7 @@ ROLE_BUDGETS = {
     "planner": lambda: _budget("AION_PLANNER_TOKENS", 220),
     "analyst": lambda: _budget("AION_ANALYST_TOKENS", 420),
     "critic": lambda: _budget("AION_CRITIC_TOKENS", 260),
+    "verifier": lambda: _budget("AION_FINAL_CRITIC_TOKENS", 700),
     "synthesizer": lambda: _budget("AION_SYNTHESIZER_TOKENS", 700),
 }
 
@@ -110,12 +118,25 @@ def synthesizer(task: str, plan: str, analysis: str, criticism: str) -> str:
 
 
 def final_critic_check(task: str, final_answer: str) -> tuple:
+    """Финальная проверка отделена от обычного Critic и обязана быть компактной."""
     content = (
         f"Задача пользователя:\n{task}\n\n"
         f"Финальный ответ:\n{final_answer}\n\n"
-        "Проверь: завершённость, отсутствие обрыва, соответствие задаче, логические ошибки, "
-        "сохранение неопределённости. Если существенных проблем нет — ответь ровно OK."
+        "Проверь только существенные дефекты: незавершённость/обрыв, несоответствие задаче, "
+        "критическую логическую ошибку, потерю существенной неопределённости. "
+        "Не переписывай ответ и не объясняй критерии."
     )
-    critique = _ask("critic", content)
-    is_ok = critique.strip().upper() == "OK"
-    return is_ok, critique
+    verdict = _ask("verifier", content)
+    if verdict.startswith("[ОШИБКА"):
+        return False, verdict
+
+    normalized = verdict.strip()
+    upper = normalized.upper()
+    if upper == "OK":
+        return True, "OK"
+    if upper.startswith("FAIL:") or upper == "FAIL":
+        return False, normalized
+
+    # Нестандартный ответ не принимается как успешный, но и не запускает
+    # неограниченный цикл: pipeline всё равно ограничен max_iterations.
+    return False, f"FAIL: Final Verifier нарушил формат: {normalized[:240]}"
