@@ -120,22 +120,23 @@ class OpenAICompatibleProvider(BaseProvider):
             "policy": policy,
         }
 
-    def ask(self, prompt: str) -> str:
+    def ask(self, prompt: str, max_tokens: int | None = None) -> str:
         if not self.api_key:
             raise ProviderError("API-ключ не найден в переменных окружения (AION_API_KEY).")
 
         self._enforce_cost_policy()
 
+        effective_max_tokens = self.max_tokens if max_tokens is None else int(max_tokens)
+        if effective_max_tokens <= 0:
+            raise ProviderError("max_tokens должен быть > 0")
+
         endpoint = f"{self.api_url}/chat/completions"
         payload = {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": self.max_tokens,
+            "max_tokens": effective_max_tokens,
         }
 
-        # OpenRouter нормализует reasoning-параметр между провайдерами.
-        # Для текущей обкатки можно задать effort=none, чтобы reasoning-токены
-        # не съедали весь лимит ответа до появления финального content.
         if self._is_openrouter() and self.reasoning_effort:
             payload["reasoning"] = {
                 "effort": self.reasoning_effort,
@@ -168,6 +169,7 @@ class OpenAICompatibleProvider(BaseProvider):
                 "total_tokens": usage.get("total_tokens"),
                 "completion_tokens": usage.get("completion_tokens"),
                 "reasoning_tokens": details.get("reasoning_tokens"),
+                "max_tokens_requested": effective_max_tokens,
             }
 
             if self.free_only and cost not in (None, 0, 0.0, "0", "0.0"):
