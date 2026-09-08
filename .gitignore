@@ -8,3 +8,6 @@ __pycache__/
 *.pyc
 .env
 .env.*
+
+# Imported candidate knowledge is runtime/user data, never source code.
+knowledge/candidates/*.jsonl
