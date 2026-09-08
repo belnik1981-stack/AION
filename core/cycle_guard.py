@@ -23,7 +23,6 @@ _STOP = {
 
 
 def _normalise(value: Any) -> str:
-    """Create a stable representation resilient to whitespace/key-order noise."""
     if isinstance(value, str):
         return _WS.sub(" ", value.strip().lower())
     try:
@@ -34,17 +33,8 @@ def _normalise(value: Any) -> str:
 
 
 def _semantic_tokens(value: Any) -> set[str]:
-    """Extract conservative content tokens for near-semantic comparison.
-
-    This intentionally avoids an LLM/embedding dependency in the cycle guard.
-    It catches reformulations sharing the same core concepts but does not claim
-    full natural-language semantic equivalence.
-    """
     text = _normalise(value)
-    return {
-        token for token in _TOKEN.findall(text)
-        if len(token) >= 3 and token not in _STOP
-    }
+    return {token for token in _TOKEN.findall(text) if len(token) >= 3 and token not in _STOP}
 
 
 def _char_ngrams(value: Any, n: int = 4) -> set[str]:
@@ -61,7 +51,6 @@ def _jaccard(left: set[str], right: set[str]) -> float:
 
 
 def semantic_similarity(left: Any, right: Any) -> float:
-    """Return conservative lexical-semantic similarity in [0, 1]."""
     token_score = _jaccard(_semantic_tokens(left), _semantic_tokens(right))
     ngram_score = _jaccard(_char_ngrams(left), _char_ngrams(right))
     return round(max(token_score, 0.55 * token_score + 0.45 * ngram_score), 4)
@@ -83,14 +72,6 @@ class CycleObservation:
 
 
 class CycleGuard:
-    """Detect duplicate, alternating and near-semantic repeated states.
-
-    An explicit semantic_key is the strongest signal: callers should use the
-    same key when two differently worded outputs represent the same decision,
-    action, claim-set or interpretation. Without a semantic_key the guard uses
-    a conservative lexical similarity threshold.
-    """
-
     def __init__(self, max_history: int = 12, semantic_threshold: float = 0.82) -> None:
         self.max_history = max(4, int(max_history))
         self.semantic_threshold = max(0.60, min(0.98, float(semantic_threshold)))
@@ -103,6 +84,10 @@ class CycleGuard:
     def observe(self, stage: str, value: Any, semantic_key: str | None = None) -> CycleObservation:
         stage_norm = stage.strip().lower()
         key_norm = semantic_key.strip().lower() if semantic_key else None
+        previous_values = list(self._values)
+        previous_stages = list(self._stages)
+        previous_keys = list(self._semantic_keys)
+
         fp = state_fingerprint(stage_norm, value, key_norm)
         count = self._counts.get(fp, 0) + 1
         self._counts[fp] = count
@@ -118,6 +103,20 @@ class CycleGuard:
             self._semantic_keys.pop(0)
             self._counts[removed] = max(0, self._counts.get(removed, 1) - 1)
             count = self._counts.get(fp, count)
+
+        # Same explicit interpretation under different wording has priority over
+        # generic fingerprint repetition, because semantic_key participates in fp.
+        if key_norm:
+            for previous_stage, previous_key, previous_value in zip(previous_stages, previous_keys, previous_values):
+                if previous_stage == stage_norm and previous_key == key_norm:
+                    if _normalise(previous_value) != _normalise(value):
+                        return CycleObservation(
+                            True,
+                            "same_interpretation",
+                            count,
+                            "same_semantic_key_repeated_with_different_wording",
+                            1.0,
+                        )
 
         if len(self._history) >= 2 and self._history[-1] == self._history[-2]:
             return CycleObservation(True, "direct_repeat", count, "same_state_repeated", 1.0)
@@ -142,22 +141,9 @@ class CycleGuard:
                 1.0,
             )
 
-        # Explicit interpretation/decision identity: different wording, same key.
-        if key_norm:
-            for previous_stage, previous_key in zip(self._stages[:-1], self._semantic_keys[:-1]):
-                if previous_stage == stage_norm and previous_key == key_norm:
-                    return CycleObservation(
-                        True,
-                        "same_interpretation",
-                        2,
-                        "same_semantic_key_repeated_with_different_wording",
-                        1.0,
-                    )
-
-        # Conservative fallback for textual reformulations in the same stage.
         current_tokens = _semantic_tokens(value)
         if len(current_tokens) >= 4:
-            for previous_stage, previous_value in zip(self._stages[:-1], self._values[:-1]):
+            for previous_stage, previous_value in zip(previous_stages, previous_values):
                 if previous_stage != stage_norm:
                     continue
                 previous_tokens = _semantic_tokens(previous_value)
