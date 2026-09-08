@@ -11,3 +11,7 @@ __pycache__/
 
 # Imported candidate knowledge is runtime/user data, never source code.
 knowledge/candidates/*.jsonl
+
+# Adaptive learning state and runtime audit logs are local mutable data.
+knowledge/adaptive/*.json
+audit/*.jsonl
