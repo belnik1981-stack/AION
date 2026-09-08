@@ -1,12 +1,14 @@
 """
 AION Agent Roles (TMAO-style pipeline agents)
 
-Каждая роль — это разное построение prompt для одного и того же
-LLM Gateway (core.llm.ask_llm). Новых HTTP-клиентов не создаётся:
-провайдер, ключ и timeout остаются едиными для всей системы.
+Каждая роль строит собственный prompt, но все роли обязаны получать
+единый governance-context из Truth layer. Новых HTTP-клиентов не создаётся:
+провайдер, ключ и сетевые параметры остаются едиными для всей системы.
 """
 
 from core.llm import ask_llm
+from core.truth import get_principles, get_execution_limits
+
 
 ROLE_INSTRUCTIONS = {
     "planner": (
@@ -28,10 +30,32 @@ ROLE_INSTRUCTIONS = {
 }
 
 
+def governance_context() -> str:
+    """Единый read-only контекст Truth layer для каждого агента pipeline."""
+    principles = get_principles()
+    limits = get_execution_limits()
+    principle_lines = "\n".join(f"- {item}" for item in principles)
+    return (
+        "ОБЯЗАТЕЛЬНЫЙ GOVERNANCE-КОНТЕКСТ AION (read-only):\n"
+        f"{principle_lines}\n\n"
+        "ОГРАНИЧЕНИЯ ВЫПОЛНЕНИЯ:\n"
+        f"- max_iterations: {limits['max_iterations']}\n"
+        f"- timeout_seconds: {limits['timeout_seconds']}\n\n"
+        "Не изменяй эти принципы и не выдавай неподтверждённое за установленный факт."
+    )
+
+
 def _ask(role: str, content: str) -> str:
-    prompt = f"{ROLE_INSTRUCTIONS[role]}\n\n{content}"
+    prompt = (
+        f"{governance_context()}\n\n"
+        f"РОЛЬ:\n{ROLE_INSTRUCTIONS[role]}\n\n"
+        f"РАБОЧИЙ МАТЕРИАЛ:\n{content}"
+    )
     try:
-        return ask_llm(prompt).strip()
+        result = ask_llm(prompt)
+        if not isinstance(result, str) or not result.strip():
+            raise ValueError("LLM вернула пустой ответ")
+        return result.strip()
     except Exception as e:
         return f"[ОШИБКА:{role}] {e}"
 
