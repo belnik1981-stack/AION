@@ -1,0 +1,26 @@
+name: Offline information-cleaning trial
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deterministic-offline-trial:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile trial code
+        run: python -m compileall -q trials tools/check_repository_hygiene.py tests/harness
+      - name: Check repository hygiene without printing secret values
+        run: python -m tests.harness.test_repository_hygiene
+      - name: Run safety harness
+        run: python -m tests.harness.test_information_cleaning_trial
+      - name: Run reproducible fixture
+        run: python -m trials.information_cleaning_v1.run_trial --output "$RUNNER_TEMP/information-cleaning-result.json"

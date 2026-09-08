@@ -1,0 +1,249 @@
+{
+  "fixture_version": 1,
+  "scenarios": [
+    {
+      "scenario_id": "samsung-note-critical-negative-control",
+      "claim": "Материал готов к практическому применению в проекте.",
+      "risk_class": "critical",
+      "sources": [
+        {
+          "source_id": "noise-page-1",
+          "source_type": "note_page",
+          "dependency_root": "unrelated-note-content",
+          "root_verification": "unverified",
+          "stance": "neutral",
+          "relevance": "noise",
+          "quality": 0.0,
+          "content": "html head meta charset utf-8 title div id app style display flex script document.getElementById trigger onclick alert"
+        },
+        {
+          "source_id": "a-1",
+          "source_type": "controlled_fixture",
+          "dependency_root": "root-a",
+          "root_verification": "verified",
+          "stance": "supports",
+          "relevance": "relevant",
+          "quality": 0.92,
+          "content": "Корень A имеет проверенную цепочку происхождения."
+        },
+        {
+          "source_id": "a-2-duplicate",
+          "source_type": "controlled_fixture",
+          "dependency_root": "root-a",
+          "root_verification": "verified",
+          "stance": "supports",
+          "relevance": "relevant",
+          "quality": 0.92,
+          "content": "  КОРЕНЬ A имеет проверенную цепочку происхождения.  "
+        },
+        {
+          "source_id": "a-3",
+          "source_type": "controlled_fixture",
+          "dependency_root": "root-a",
+          "root_verification": "verified",
+          "stance": "supports",
+          "relevance": "relevant",
+          "quality": 0.88,
+          "content": "Для корня A зафиксирован способ получения материала."
+        },
+        {
+          "source_id": "a-4",
+          "source_type": "controlled_fixture",
+          "dependency_root": "root-a",
+          "root_verification": "verified",
+          "stance": "supports",
+          "relevance": "relevant",
+          "quality": 0.86,
+          "content": "Целостность записи корня A подтверждена контрольной суммой."
+        },
+        {
+          "source_id": "a-5",
+          "source_type": "controlled_fixture",
+          "dependency_root": "root-a",
+          "root_verification": "verified",
+          "stance": "neutral",
+          "relevance": "relevant",
+          "quality": 0.75,
+          "content": "Корень A остаётся одним корнем независимо от числа его повторений."
+        },
+        {
+          "source_id": "b-1",
+          "source_type": "controlled_fixture",
+          "dependency_root": "root-b",
+          "root_verification": "partial",
+          "stance": "supports",
+          "relevance": "relevant",
+          "quality": 0.9,
+          "content": "У корня B установлена только часть цепочки происхождения."
+        },
+        {
+          "source_id": "b-2-duplicate",
+          "source_type": "controlled_fixture",
+          "dependency_root": "root-b",
+          "root_verification": "partial",
+          "stance": "supports",
+          "relevance": "relevant",
+          "quality": 0.9,
+          "content": "У корня B установлена только часть цепочки происхождения."
+        },
+        {
+          "source_id": "b-3",
+          "source_type": "controlled_fixture",
+          "dependency_root": "root-b",
+          "root_verification": "partial",
+          "stance": "supports",
+          "relevance": "relevant",
+          "quality": 0.82,
+          "content": "Идентичность первичного источника B подтверждена не полностью."
+        },
+        {
+          "source_id": "b-4",
+          "source_type": "controlled_fixture",
+          "dependency_root": "root-b",
+          "root_verification": "partial",
+          "stance": "supports",
+          "relevance": "relevant",
+          "quality": 0.8,
+          "content": "Методика получения данных B описана частично."
+        },
+        {
+          "source_id": "b-5",
+          "source_type": "controlled_fixture",
+          "dependency_root": "root-b",
+          "root_verification": "partial",
+          "stance": "neutral",
+          "relevance": "relevant",
+          "quality": 0.7,
+          "content": "Первичные данные B недоступны для полного воспроизведения."
+        }
+      ],
+      "expected": {
+        "admission_token": "DENIED",
+        "metrics": {
+          "input_records": 11,
+          "relevant_sources_seen": 10,
+          "cleaned_sources": 8,
+          "quarantined_noise": 1,
+          "duplicates_removed": 2,
+          "dependency_roots": 2,
+          "verified_support_roots": 1,
+          "required_verified_roots": 2,
+          "material_contradiction_roots": 0
+        }
+      }
+    },
+    {
+      "scenario_id": "positive-analysis-only-control",
+      "claim": "Очищенная тестовая запись пригодна только для аналитического использования.",
+      "risk_class": "moderate",
+      "sources": [
+        {
+          "source_id": "c-1",
+          "source_type": "controlled_fixture",
+          "dependency_root": "root-c",
+          "root_verification": "verified",
+          "stance": "supports",
+          "relevance": "relevant",
+          "quality": 0.91,
+          "content": "Проверка C выполнена; контакт audit@example.org; тестовый ключ sk-or-v1-ABCDEFGHIJKLMNOPQRSTUVWX не должен сохраниться."
+        },
+        {
+          "source_id": "c-2",
+          "source_type": "controlled_fixture",
+          "dependency_root": "root-c",
+          "root_verification": "verified",
+          "stance": "neutral",
+          "relevance": "relevant",
+          "quality": 0.75,
+          "content": "Корень C проверен отдельной процедурой целостности."
+        },
+        {
+          "source_id": "d-1",
+          "source_type": "controlled_fixture",
+          "dependency_root": "root-d",
+          "root_verification": "verified",
+          "stance": "supports",
+          "relevance": "relevant",
+          "quality": 0.87,
+          "content": "Независимый корень D подтверждает допустимость аналитического использования."
+        },
+        {
+          "source_id": "d-2-duplicate",
+          "source_type": "controlled_fixture",
+          "dependency_root": "root-d",
+          "root_verification": "verified",
+          "stance": "supports",
+          "relevance": "relevant",
+          "quality": 0.87,
+          "content": "Независимый корень D подтверждает допустимость аналитического использования."
+        }
+      ],
+      "expected": {
+        "admission_token": "ANALYSIS_ONLY",
+        "metrics": {
+          "input_records": 4,
+          "relevant_sources_seen": 4,
+          "cleaned_sources": 3,
+          "quarantined_noise": 0,
+          "duplicates_removed": 1,
+          "sensitive_values_redacted": 2,
+          "dependency_roots": 2,
+          "verified_support_roots": 2,
+          "required_verified_roots": 2,
+          "material_contradiction_roots": 0
+        }
+      }
+    },
+    {
+      "scenario_id": "material-contradiction-control",
+      "claim": "Два подтверждения всегда достаточны для допуска.",
+      "risk_class": "moderate",
+      "sources": [
+        {
+          "source_id": "e-1",
+          "source_type": "controlled_fixture",
+          "dependency_root": "root-e",
+          "root_verification": "verified",
+          "stance": "supports",
+          "relevance": "relevant",
+          "quality": 0.9,
+          "content": "Корень E поддерживает утверждение."
+        },
+        {
+          "source_id": "f-1",
+          "source_type": "controlled_fixture",
+          "dependency_root": "root-f",
+          "root_verification": "verified",
+          "stance": "supports",
+          "relevance": "relevant",
+          "quality": 0.85,
+          "content": "Корень F независимо поддерживает утверждение."
+        },
+        {
+          "source_id": "g-1",
+          "source_type": "controlled_fixture",
+          "dependency_root": "root-g",
+          "root_verification": "verified",
+          "stance": "contradicts",
+          "relevance": "relevant",
+          "quality": 0.88,
+          "content": "Корень G содержит существенное проверенное контрдоказательство."
+        }
+      ],
+      "expected": {
+        "admission_token": "DENIED",
+        "metrics": {
+          "input_records": 3,
+          "relevant_sources_seen": 3,
+          "cleaned_sources": 3,
+          "quarantined_noise": 0,
+          "duplicates_removed": 0,
+          "dependency_roots": 3,
+          "verified_support_roots": 2,
+          "required_verified_roots": 2,
+          "material_contradiction_roots": 1
+        }
+      }
+    }
+  ]
+}

@@ -1,10 +1,20 @@
+# Python build/cache
 __pycache__/
+*.py[cod]
 *.db
-logs/
 
-# Runtime / temporary files
-*.bak
-__pycache__/
-*.pyc
+# Secrets and local configuration
 .env
 .env.*
+
+# Mutable runtime/user data (not source code)
+logs/
+state.json
+pipeline_state.json
+knowledge/episodic/*.json
+knowledge/long_term/*.json
+knowledge/candidates/*.jsonl
+knowledge/adaptive/*.json
+audit/*.jsonl
+trial_output/
+*.bak

@@ -1,264 +1,120 @@
 # PROJECT STATE
-## Философия здорового сообщества / AION
 
-> Контрольная точка проекта.
-> Этот документ фиксирует подтверждённое состояние системы,
-> принятые решения и ближайший следующий шаг.
-> Не заменяет инструкции проекта.
-
----
+Дата контрольной точки: 2026-09-08  
+Рабочая ветка: `information-cleaning-trial-v1-20260908`  
+Исходная основа: `trial-readiness-2026-09-08@b509ef540318f87cf33a03c53091c2a66b3c4647`  
+Актуальная основа после синхронизации перед PR: `master@d866435a42efc7f0c38e8f8bdbb3aa93908b641d`  
+Начальная контрольная точка аудита: `master@540957cc3114f060dadeec90284b2366fb81183e`
 
 ## 1. Цель
 
-Постепенно проверить, какие элементы концепции здорового
-и постдефицитного общества могут быть:
+AION рассматривается как технический инструмент для последовательной проверки элементов концепции здорового и постдефицитного общества:
 
-формализованы → измерены → смоделированы → реализованы →
-проверены → масштабированы.
+`формализация → измерение → моделирование → реализация → проверка → масштабирование`.
 
-AION рассматривается как один из технических инструментов
-практической проверки этой концепции.
-
----
+Текущая работа ограничена подготовкой воспроизводимого испытания очистки информации и её безопасного допуска к дальнейшему аналитическому использованию.
 
 ## 2. Рабочий протокол
 
-Текущий инженерный протокол AION:
+`READ-ONLY аудит → карта архитектуры → архитектурная заморозка → реализация → тестирование → интеграция`.
 
-READ-ONLY статический аудит
-→ карта существующей архитектуры
-→ целевая архитектура
-→ архитектурная заморозка
-→ реализация
-→ тестирование
-→ интеграция.
+READ-ONLY аудит существующего кода для данного испытания завершён. Его результат: [`docs/audit/READ_ONLY_AUDIT_2026-09-08.md`](audit/READ_ONLY_AUDIT_2026-09-08.md).
 
-До завершения READ-ONLY аудита архитектуру не объединять
-и не изменять без необходимости.
+Архитектура заморожена только для изолированного прототипа v1: [`ADR-0001`](architecture/ADR-0001-INFORMATION_CLEANING_TRIAL_V1.md). Это не заморозка всей будущей архитектуры AION.
 
----
+## 3. Подтверждённая карта исполнения
 
-## 3. Подтверждённое состояние AION
+```text
+main.py / server.py / pipeline_cli.py
+  -> core.engine или core.pipeline
+  -> core.llm
+  -> providers.registry
+  -> providers.openai_compatible
+  -> внешний OpenAI-compatible API
 
-### Core
+core.pipeline -> core.agents -> memory.store
+core.truth -> knowledge/truth/{truth.json,system.yaml}
+```
 
-Существуют:
+FACT: автоматическая запись в Truth существующим кодом не обнаружена.
 
-- core/engine.py
-- core/llm.py
-- core/truth.py
-- core/diagnostics.py
-- core/version.py
+FACT: API-ключ берётся из `AION_API_KEY`; в исходном коде значение ключа не хранится.
 
-### Execution flow
+## 4. Что реализовано в рабочей ветке
 
-Подтверждена цепочка:
+- детерминированный offline-контур `trials/information_cleaning_v1`;
+- строгая схема контролируемых fixtures и безопасные пределы размера;
+- нормализация Unicode/пробелов;
+- редактирование известных форматов секретов и email;
+- карантин явно размеченного цифрового шума без бесследного удаления;
+- точная дедупликация с fail-closed при конфликте метаданных дубликатов;
+- свёртка evidence records по заявленному dependency root;
+- сохранение существенных противоречий;
+- токены только `ANALYSIS_ONLY` или `DENIED`; `execution_authorized=false` всегда;
+- повторная проверка evidence contract перед downstream-использованием;
+- запрет записи отчёта в `knowledge/truth`;
+- offline safety harness и отдельный GitHub Actions workflow;
+- leak-guard, который не печатает найденные значения и блокирует типовые credentials, приватные ключи, открытые provenance-транскрипты, бинарные транспортные архивы и отслеживаемые runtime-данные;
+- отделение изменяемых runtime-данных от исходного кода через `.gitignore`.
 
-Engine
-→ LLM Gateway
-→ Provider Registry
-→ Provider
-→ внешний LLM API.
+Сетевые вызовы, LLM, Agents SDK, server, `run_cycle()` и существующая память к v1 не подключены.
 
-`core/llm.py` является единой точкой обращения Engine к LLM.
+Полный origin dialogue, авторская позиция, DOCX/PDF/ZIP/PATCH не включаются в Git-ветку. В `docs/egde/SOURCE_MANIFEST_2026-09-08.md` остаются только SHA-256. Это уменьшает объём раскрываемых авторских и персональных материалов даже внутри приватного репозитория.
 
-### Truth layer
+## 5. Локальный результат испытания
 
-Существуют:
+Команда:
 
-- knowledge/truth/truth.json
-- knowledge/truth/system.yaml
+```bash
+python -m tests.harness.test_information_cleaning_trial
+```
 
-`core/truth.py` предоставляет:
+Результат: `INFORMATION CLEANING TRIAL: PASS`.
 
-- load_truth()
-- load_system()
-- get_principles()
-- get_execution_limits()
-- truth_status()
+Контрольные сценарии:
 
-Truth читается рабочим ядром.
+| Сценарий | Проверяемое условие | Результат |
+| --- | --- | --- |
+| Samsung Notes negative control | 10 релевантных записей → 2 root → только 1 verified; risk=`critical` | `DENIED` |
+| Positive analytical control | 2 verified root, дубликат удалён, secret/email редактированы | `ANALYSIS_ONLY` |
+| Contradiction control | порог поддержки выполнен, но есть проверенное контрдоказательство | `DENIED` |
 
-Автоматическая запись Truth не предусмотрена.
+Truth до и после теста остался byte-identical:
 
-### Проверено
+- `knowledge/truth/truth.json`: SHA-256 `a542f48a63395e6c0e2c4784889de75296adf7057bd254734ccdc0f7f593ca32`;
+- `knowledge/truth/system.yaml`: SHA-256 `fe115f7bf7c6206bc3de7adc44aa259461bd9ecf5eb2b8a81ab67f2d4c44ef45`.
 
-Успешно выполнено:
+## 6. Открытые блокеры runtime-интеграции
 
-- Python compile для core/truth.py и core/engine.py;
-- загрузка принципов;
-- загрузка execution limits;
-- truth_status();
-- load_state();
-- build_prompt().
+- **P-001 PARTIAL/OPEN:** `max_iterations` теперь ограничивает цикл доработки, но не является единым лимитом общего числа LLM-вызовов; при значении 3 pipeline способен сделать до 9 вызовов.
+- **P-002 OPEN:** provider timeout не связан доказанным путём с `timeout_seconds` из Truth.
+- **P-003 CLOSED FOR AUDIT:** `providers/base.py` и `providers/registry.py` проверены; реестр поддерживает только `openai_compatible`.
+- **P-004 OPEN:** нет доверенного механизма проверки реальной независимости внешних dependency roots.
+- **P-005 OPEN:** нет формальных Evidence Object/Claim Object с обязательными provenance, content hash, verification method и revision history.
+- **P-006 OPEN:** экспериментальный promotion gate доверяет входному `decision=verified` и поэтому не допускается к long-term memory.
+- **P-007 OPEN:** adaptive learning экспериментальной ветки принимает не связанную с проверенной записью оценку, что допускает poisoning.
+- **P-008 OPEN:** OpenAI-compatible provider читает response body целиком; отдельного ограничения размера ответа до JSON-разбора нет.
 
-Текущие limits:
+Экспериментальная ветка `agents-sdk-adapter-20260908` остаётся исследовательским прототипом и не должна сливаться как готовая система.
 
-- max_iterations = 3
-- timeout_seconds = 30
+## 7. Следующий разрешённый этап
 
----
+После независимого повторения offline-теста:
 
-## 4. Подтверждённая архитектура
+1. определить схемы Evidence Object и Claim Object;
+2. реализовать проверяемый provenance/dependency contract для публичного тестового набора;
+3. провести adversarial-тесты ложных, устаревших, зависимых и противоречивых источников;
+4. оформить отдельный ADR до подключения candidate store;
+5. отдельно согласовать любые полномочия на запись в memory или исполнение действий.
 
-Engine:
+Слияние в `master` и автономное выполнение не разрешены этой контрольной точкой.
 
-- загружает state;
-- читает Truth;
-- строит prompt;
-- вызывает LLM;
-- сохраняет результат.
+## 8. Правило достоверности
 
-Engine не должен изменять Truth.
+- **FACT** — подтверждено кодом, тестом или первичным артефактом.
+- **DECISION** — явно принятое ограниченное архитектурное решение.
+- **HYPOTHESIS** — рабочая гипотеза.
+- **OPEN** — вопрос требует реализации или проверки.
+- **UNKNOWN** — данных недостаточно.
 
-LLM Gateway:
-
-`core/llm.py → providers.registry.create_provider()`
-
-Provider:
-
-`OpenAICompatibleProvider`
-
-Использует:
-
-- AION_API_URL
-- AION_API_KEY
-- AION_MODEL
-
-API-ключ не хранится в коде.
-
----
-
-## 5. Обнаруженные проблемы
-
-### P-001 — max_iterations пока декларативен
-
-Truth содержит:
-
-`max_iterations = 3`
-
-Engine передаёт значение в state и prompt.
-
-Но реального механизма, ограничивающего количество итераций,
-в Engine пока не обнаружено.
-
-Следовательно:
-
-`max_iterations` пока не является enforced safety control.
-
-Статус: OPEN.
-
-### P-002 — timeout не связан с Truth
-
-Truth содержит:
-
-`timeout_seconds = 30`
-
-Provider имеет собственный:
-
-`timeout = 30`
-
-и передаёт его в `urlopen()`.
-
-Но Provider пока не получает timeout непосредственно
-из Truth.
-
-Следовательно, два значения совпадают случайно,
-а не вследствие единого источника конфигурации.
-
-Статус: OPEN.
-
-### P-003 — provider audit не завершён
-
-Необходимо проверить:
-
-- providers/base.py
-- providers/registry.py
-
-После этого завершить карту provider-слоя.
-
-Статус: OPEN.
-
----
-
-## 6. Что пока НЕ следует делать
-
-До завершения текущего READ-ONLY аудита:
-
-- не объединять архитектуру наугад;
-- не переносить компоненты между проектами;
-- не менять execution model;
-- не считать prompt ограничителем безопасности;
-- не считать max_iterations реально enforced;
-- не считать timeout из Truth реально enforced;
-- не проводить массовый рефакторинг.
-
----
-
-## 7. Текущая стадия
-
-READ-ONLY STATIC AUDIT
-
-Truth layer — частично реализован и проверен.
-
-Execution-control — обнаружены архитектурные разрывы.
-
-Provider-layer — аудит продолжается.
-
-Архитектурная заморозка ещё НЕ выполнена.
-
----
-
-## 8. Следующий шаг
-
-Проверить:
-
-1. providers/base.py
-2. providers/registry.py
-
-Затем обновить архитектурную карту.
-
-После завершения полного READ-ONLY аудита:
-
-→ сформировать целевую архитектуру;
-→ оформить Architecture Decision Record;
-→ заморозить архитектуру;
-→ только затем переходить к реализации.
-
----
-
-## 9. Правило достоверности
-
-Статусы:
-
-FACT — подтверждено кодом/тестом/источником.
-
-DECISION — принято архитектурное решение.
-
-HYPOTHESIS — рабочая гипотеза.
-
-OPEN — вопрос требует проверки.
-
-UNKNOWN — данных недостаточно.
-
-Нельзя превращать HYPOTHESIS или OPEN в FACT без проверки.
-
----
-
-## 10. Последняя контрольная точка
-
-Последний подтверждённый результат:
-
-get_principles() работает.
-get_execution_limits() работает.
-truth_status() работает.
-build_prompt() работает.
-
-Последнее обнаружение:
-
-max_iterations и timeout_seconds пока не имеют
-полного runtime enforcement.
-
-Следующее действие:
-
-READ-ONLY inspection providers/base.py и providers/registry.py.
+Нельзя превращать `HYPOTHESIS`, `OPEN` или AI-generated текст в `FACT` без отдельной проверки.
