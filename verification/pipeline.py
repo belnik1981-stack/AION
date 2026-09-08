@@ -84,13 +84,7 @@ def _canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def verification_hash(
-    *,
-    candidate_id: Any,
-    claim: str,
-    evidence: Iterable[EvidenceItem],
-    policy: VerificationPolicy,
-) -> str:
+def verification_hash(*, candidate_id: Any, claim: str, evidence: Iterable[EvidenceItem], policy: VerificationPolicy) -> str:
     payload = {
         "candidate_id": candidate_id,
         "claim": claim.strip(),
@@ -100,11 +94,7 @@ def verification_hash(
     return hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
 
 
-def evaluate_claim(
-    claim: str,
-    evidence: Iterable[EvidenceItem],
-    policy: VerificationPolicy | None = None,
-) -> ClaimEvaluation:
+def evaluate_claim(claim: str, evidence: Iterable[EvidenceItem], policy: VerificationPolicy | None = None) -> ClaimEvaluation:
     policy = policy or VerificationPolicy()
     claim = claim.strip()
     if not claim:
@@ -116,10 +106,12 @@ def evaluate_claim(
 
     weighted_support = round(sum(item.quality for item in support), 4)
     weighted_contradiction = round(sum(item.quality for item in contradictions), 4)
-    support_groups = {item.independent_group for item in support}
-    average_quality = round(
-        sum(item.quality for item in support) / len(support), 4 if support else 4
-    ) if support else 0.0
+    support_groups = {
+        item.independent_group
+        for item in support
+        if not item.independent_group.startswith("unverified:")
+    }
+    average_quality = round(sum(item.quality for item in support) / len(support), 4) if support else 0.0
     has_non_llm_support = any(
         item.source_type not in {"llm", "model_output", "chat", "chat_export"}
         for item in support
@@ -161,22 +153,12 @@ def evaluate_claim(
     )
 
 
-def verify_candidate_record(
-    candidate: dict[str, Any],
-    claim: str,
-    evidence: Iterable[EvidenceItem],
-    policy: VerificationPolicy | None = None,
-) -> dict[str, Any]:
+def verify_candidate_record(candidate: dict[str, Any], claim: str, evidence: Iterable[EvidenceItem], policy: VerificationPolicy | None = None) -> dict[str, Any]:
     policy = policy or VerificationPolicy()
     items = [item.normalised() for item in evidence]
     evaluation = evaluate_claim(claim, items, policy)
     candidate_id = candidate.get("candidate_id")
-    integrity = verification_hash(
-        candidate_id=candidate_id,
-        claim=claim,
-        evidence=items,
-        policy=policy,
-    )
+    integrity = verification_hash(candidate_id=candidate_id, claim=claim, evidence=items, policy=policy)
     return {
         "candidate_id": candidate_id,
         "claim_id": _claim_id(claim),
@@ -190,10 +172,7 @@ def verify_candidate_record(
     }
 
 
-def append_audit_record(
-    record: dict[str, Any],
-    audit_file: str | Path = DEFAULT_AUDIT_FILE,
-) -> None:
+def append_audit_record(record: dict[str, Any], audit_file: str | Path = DEFAULT_AUDIT_FILE) -> None:
     path = Path(audit_file)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
@@ -204,12 +183,10 @@ def _reconstruct_record(verification_record: dict[str, Any]) -> tuple[str, list[
     claim = str(verification_record.get("claim", "")).strip()
     if not claim:
         raise ValueError("Verified claim is empty")
-
     raw_policy = verification_record.get("policy")
     if not isinstance(raw_policy, dict):
         raise ValueError("Verification policy missing")
     policy = VerificationPolicy(**raw_policy)
-
     raw_evidence = verification_record.get("evidence")
     if not isinstance(raw_evidence, list) or not raw_evidence:
         raise ValueError("Verification evidence missing")
@@ -217,18 +194,7 @@ def _reconstruct_record(verification_record: dict[str, Any]) -> tuple[str, list[
     return claim, evidence, policy
 
 
-def promote_verified_claim(
-    verification_record: dict[str, Any],
-    *,
-    reviewed_by: str,
-    audit_file: str | Path = DEFAULT_AUDIT_FILE,
-) -> dict[str, Any]:
-    """Promote only after integrity check and fresh deterministic re-evaluation.
-
-    reviewed_by is required for the experimental test phase so a forged file
-    cannot silently promote itself. This can later be replaced by an explicit
-    autonomous authorization policy once that policy is independently tested.
-    """
+def promote_verified_claim(verification_record: dict[str, Any], *, reviewed_by: str, audit_file: str | Path = DEFAULT_AUDIT_FILE) -> dict[str, Any]:
     reviewer = reviewed_by.strip()
     if not reviewer:
         raise ValueError("Explicit reviewer identity is required")
