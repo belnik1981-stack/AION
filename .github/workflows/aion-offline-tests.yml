@@ -35,6 +35,9 @@ jobs:
       - name: Compile Python files
         run: python -m compileall -q .
 
+      - name: Validate startup shell
+        run: sh -n start_app.sh
+
       - name: Run architecture harness
         run: python tests/harness/test_current_architecture.py
 
@@ -67,3 +70,6 @@ jobs:
 
       - name: Run cycle guard harness
         run: python tests/harness/test_cycle_guard.py
+
+      - name: Run server safety harness
+        run: python tests/harness/test_server_safety.py
