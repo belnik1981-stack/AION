@@ -2,7 +2,8 @@
 
 AION learns reliability weights for models/sources from verified outcomes.
 It does NOT fine-tune or rewrite model parameters. Every update is journaled
-and reversible. Truth is never modified.
+and reversible. Repeated rollback loops automatically freeze learning.
+Truth is never modified.
 """
 from __future__ import annotations
 
@@ -32,6 +33,8 @@ class LearningPolicy:
     severe_penalty_step: float = 0.25
     min_verified_evidence_score: float = 1.4
     rollback_on_regression: bool = True
+    max_consecutive_rollbacks: int = 3
+    recovery_observations_required: int = 3
 
 
 def _now() -> str:
@@ -43,12 +46,7 @@ def _clamp(value: float, policy: LearningPolicy) -> float:
 
 
 class AdaptiveLearningController:
-    def __init__(
-        self,
-        state_path: str | Path = DEFAULT_STATE,
-        audit_path: str | Path = DEFAULT_AUDIT,
-        policy: LearningPolicy | None = None,
-    ) -> None:
+    def __init__(self, state_path: str | Path = DEFAULT_STATE, audit_path: str | Path = DEFAULT_AUDIT, policy: LearningPolicy | None = None) -> None:
         self.state_path = Path(state_path)
         self.audit_path = Path(audit_path)
         self.policy = policy or LearningPolicy()
@@ -56,11 +54,12 @@ class AdaptiveLearningController:
 
     def _default_state(self) -> dict[str, Any]:
         return {
-            "version": 1,
+            "version": 2,
             "updated_at": _now(),
             "sources": {},
             "models": {},
             "history": [],
+            "safety": {},
             "truth_modified": False,
         }
 
@@ -73,15 +72,19 @@ class AdaptiveLearningController:
             raise LearningStateError(f"Invalid learning state: {exc}") from exc
         if not isinstance(data, dict):
             raise LearningStateError("Learning state must be an object")
+        data.setdefault("version", 2)
+        data.setdefault("sources", {})
+        data.setdefault("models", {})
+        data.setdefault("history", [])
+        data.setdefault("safety", {})
+        data.setdefault("truth_modified", False)
         return data
 
     def _save(self) -> None:
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         self.state["updated_at"] = _now()
         self.state["truth_modified"] = False
-        self.state_path.write_text(
-            json.dumps(self.state, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        self.state_path.write_text(json.dumps(self.state, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def _audit(self, record: dict[str, Any]) -> None:
         self.audit_path.parent.mkdir(parents=True, exist_ok=True)
@@ -110,61 +113,53 @@ class AdaptiveLearningController:
             checkpoint = history[checkpoint_index]
         except IndexError as exc:
             raise LearningStateError("Checkpoint not found") from exc
-
         snapshot = checkpoint.get("snapshot", {})
         self.state["sources"] = copy.deepcopy(snapshot.get("sources", {}))
         self.state["models"] = copy.deepcopy(snapshot.get("models", {}))
         self._save()
-        self._audit({
-            "event": "rollback",
-            "reason": reason,
-            "checkpoint_created_at": checkpoint.get("created_at"),
-        })
+        self._audit({"event": "rollback", "reason": reason, "checkpoint_created_at": checkpoint.get("created_at")})
         return self.status()
 
     def _bucket(self, kind: str) -> dict[str, Any]:
         if kind not in {"source", "model"}:
             raise ValueError("kind must be source or model")
-        key = "sources" if kind == "source" else "models"
-        return self.state.setdefault(key, {})
+        return self.state.setdefault("sources" if kind == "source" else "models", {})
+
+    def _safety(self, kind: str, identity: str) -> dict[str, Any]:
+        key = f"{kind}:{identity}"
+        return self.state.setdefault("safety", {}).setdefault(key, {
+            "rollback_streak": 0,
+            "frozen": False,
+            "recovery_observations": 0,
+            "last_reason": None,
+        })
 
     def reliability(self, kind: str, identity: str) -> float:
-        bucket = self._bucket(kind)
-        item = bucket.get(identity, {})
+        item = self._bucket(kind).get(identity, {})
         return float(item.get("reliability", self.policy.initial_reliability))
 
     def influence(self, kind: str, identity: str) -> float:
-        """Influence used by AION when combining outputs. 0 means ignored."""
         rel = self.reliability(kind, identity)
-        if rel < 0.15:
-            return 0.0
-        return rel
+        return 0.0 if rel < 0.15 else rel
 
-    def record_verified_outcome(
-        self,
-        *,
-        kind: str,
-        identity: str,
-        supported: bool,
-        evidence_score: float,
-        contradicted: bool = False,
-        cleanliness_passed: bool = True,
-        regression_detected: bool = False,
-    ) -> dict[str, Any]:
-        """Update reliability only from externally verified outcomes.
-
-        Model agreement alone is insufficient. If cleanliness fails or a
-        regression is detected, the update is penalized or rolled back.
-        """
+    def record_verified_outcome(self, *, kind: str, identity: str, supported: bool, evidence_score: float, contradicted: bool = False, cleanliness_passed: bool = True, regression_detected: bool = False) -> dict[str, Any]:
         if evidence_score < self.policy.min_verified_evidence_score:
-            self._audit({
-                "event": "learning_skipped",
-                "kind": kind,
-                "identity": identity,
-                "reason": "insufficient_verified_evidence",
-                "evidence_score": evidence_score,
-            })
+            self._audit({"event": "learning_skipped", "kind": kind, "identity": identity, "reason": "insufficient_verified_evidence", "evidence_score": evidence_score})
             return {"updated": False, "reason": "insufficient_verified_evidence"}
+
+        safety = self._safety(kind, identity)
+        if safety.get("frozen"):
+            stable = supported and not contradicted and cleanliness_passed and not regression_detected
+            safety["recovery_observations"] = int(safety.get("recovery_observations", 0)) + 1 if stable else 0
+            required = max(1, int(self.policy.recovery_observations_required))
+            if safety["recovery_observations"] >= required:
+                safety.update({"frozen": False, "rollback_streak": 0, "recovery_observations": 0, "last_reason": "stability_recovered"})
+                self._save()
+                self._audit({"event": "learning_freeze_recovered", "kind": kind, "identity": identity})
+                return {"updated": False, "frozen": False, "recovered": True, "reason": "stability_recovered_next_outcome_may_learn"}
+            self._save()
+            self._audit({"event": "learning_blocked_by_freeze", "kind": kind, "identity": identity, "recovery_observations": safety["recovery_observations"], "required": required})
+            return {"updated": False, "frozen": True, "reason": "anti_oscillation_learning_freeze", "recovery_observations": safety["recovery_observations"], "required": required}
 
         checkpoint_index = self.checkpoint(f"before:{kind}:{identity}")
         bucket = self._bucket(kind)
@@ -196,13 +191,26 @@ class AdaptiveLearningController:
 
         if regression_detected and self.policy.rollback_on_regression:
             self.rollback(checkpoint_index, reason="automatic_regression_rollback")
+            safety = self._safety(kind, identity)
+            safety["rollback_streak"] = int(safety.get("rollback_streak", 0)) + 1
+            safety["recovery_observations"] = 0
+            safety["last_reason"] = "regression_detected"
+            if safety["rollback_streak"] >= max(1, int(self.policy.max_consecutive_rollbacks)):
+                safety["frozen"] = True
+                safety["last_reason"] = "rollback_limit_reached"
+                self._audit({"event": "learning_frozen_after_repeated_rollbacks", "kind": kind, "identity": identity, "rollback_streak": safety["rollback_streak"]})
+            self._save()
             return {
                 "updated": False,
                 "rolled_back": True,
+                "frozen": bool(safety.get("frozen")),
                 "reason": "regression_detected",
+                "rollback_streak": safety["rollback_streak"],
                 "reliability": self.reliability(kind, identity),
             }
 
+        safety.update({"rollback_streak": 0, "recovery_observations": 0, "last_reason": "stable_update"})
+        self._save()
         self._audit({
             "event": "reliability_update",
             "kind": kind,
@@ -214,18 +222,13 @@ class AdaptiveLearningController:
             "cleanliness_passed": cleanliness_passed,
             "evidence_score": evidence_score,
         })
-        return {
-            "updated": True,
-            "rolled_back": False,
-            "before": before,
-            "after": item["reliability"],
-            "influence": self.influence(kind, identity),
-        }
+        return {"updated": True, "rolled_back": False, "before": before, "after": item["reliability"], "influence": self.influence(kind, identity)}
 
     def status(self) -> dict[str, Any]:
         return {
             "sources": self.state.get("sources", {}),
             "models": self.state.get("models", {}),
+            "safety": self.state.get("safety", {}),
             "checkpoints": len(self.state.get("history", [])),
             "truth_modified": False,
             "base_model_weights_modified": False,
