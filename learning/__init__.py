@@ -9,5 +9,17 @@ from .controller import (
     LearningPolicy,
     LearningStateError,
 )
+from .quarantine import (
+    QuarantineAssessment,
+    assess_quarantine,
+    effective_influence,
+)
 
-__all__ = ["AdaptiveLearningController", "LearningPolicy", "LearningStateError"]
+__all__ = [
+    "AdaptiveLearningController",
+    "LearningPolicy",
+    "LearningStateError",
+    "QuarantineAssessment",
+    "assess_quarantine",
+    "effective_influence",
+]
