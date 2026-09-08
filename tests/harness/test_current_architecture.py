@@ -41,41 +41,27 @@ check("state is dict", isinstance(state, dict))
 print("\n[3] Prompt construction")
 prompt = build_prompt(state)
 check("prompt is string", isinstance(prompt, str))
-check("prompt contains principles", "АРХИТЕКТУРНЫЕ ПРИНЦИПЫ" in prompt)
-check("prompt contains limits", "max_iterations" in prompt)
+check("prompt contains principle content", all(str(principle) in prompt for principle in principles))
+check("prompt contains limits", "max_iterations" in prompt and "timeout_seconds" in prompt)
 
 print("\n[4] Provider contract")
 provider = MockProvider()
-
-check("MockProvider is BaseProvider-compatible",
-      all(hasattr(provider, x) for x in ("ask", "health")))
-
+check("MockProvider is BaseProvider-compatible", all(hasattr(provider, x) for x in ("ask", "health")))
 health = provider.health()
 check("provider health works", health["status"] if "status" in health else True)
 
 print("\n[5] Provider execution")
 response = provider.ask(prompt)
-
 check("provider accepted prompt", len(provider.calls) == 1)
 check("provider returned string", isinstance(response, str))
 check("response received", response.startswith("MOCK_RESPONSE:"))
 
 print("\n[6] State serialization")
-test_state = {
-    "status": "test",
-    "response": response,
-}
-
-encoded = json.dumps(
-    test_state,
-    ensure_ascii=False,
-)
-
+test_state = {"status": "test", "response": response}
+encoded = json.dumps(test_state, ensure_ascii=False)
 decoded = json.loads(encoded)
-
 check("state serializes", isinstance(decoded, dict))
-check("response survives serialization",
-      decoded["response"] == response)
+check("response survives serialization", decoded["response"] == response)
 
 print("\n========== RESULT ==========")
 print("LOCAL ARCHITECTURE TEST: PASS")
