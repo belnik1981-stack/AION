@@ -1,12 +1,10 @@
 """
 AION Pipeline (TMAO-style orchestration)
 
-Оркестрация поверх существующего LLM Gateway (core.llm.ask_llm) и
-существующей episodic-памяти (memory.store). НЕ изменяет core/engine.py,
-core/truth.py, server.py и start_app.sh.
-
-max_iterations берётся из Truth (get_execution_limits) — впервые делает
-это значение реально enforced для этого пути выполнения.
+Оркестрация поверх существующего LLM Gateway и episodic-памяти.
+max_iterations берётся из Truth и жёстко ограничивает цикл доработки.
+Pipeline также останавливается при отсутствии прогресса, чтобы исключить
+бессмысленное повторение одинакового финального ответа.
 """
 
 from datetime import datetime
@@ -25,10 +23,13 @@ def router(task: str) -> str:
     return "general"
 
 
+def _norm(text: str | None) -> str:
+    return " ".join((text or "").lower().split())
+
+
 def run_pipeline(task: str) -> dict:
     limits = get_execution_limits()
     max_iterations = int(limits.get("max_iterations", 2))
-
     task_type = router(task)
 
     plan = planner(task)
@@ -41,27 +42,44 @@ def run_pipeline(task: str) -> dict:
 
     criticism = critic(task, plan, analysis)
     if criticism.startswith("[ОШИБКА"):
-        criticism = "Критика недоступна."
+        return {"status": "error", "stage": "critic", "detail": criticism}
 
     final_answer = None
     accepted = False
+    previous_final = None
+    stop_reason = "max_iterations_reached"
+    iterations_used = 0
 
-    for _ in range(1, max_iterations + 1):
+    for iteration in range(1, max_iterations + 1):
+        iterations_used = iteration
         final_answer = synthesizer(task, plan, analysis, criticism)
         if final_answer.startswith("[ОШИБКА"):
             return {"status": "error", "stage": "synthesizer", "detail": final_answer}
 
+        if previous_final is not None and _norm(final_answer) == _norm(previous_final):
+            stop_reason = "stalled_no_progress"
+            break
+
         is_ok, final_critique = final_critic_check(task, final_answer)
+        if final_critique.startswith("[ОШИБКА"):
+            return {"status": "error", "stage": "final_critic", "detail": final_critique}
+
         if is_ok:
             accepted = True
+            criticism = "OK"
+            stop_reason = "accepted"
             break
+
+        previous_final = final_answer
         criticism = final_critique
 
-    add_episodic_event(task, final_answer)
+    if final_answer:
+        add_episodic_event(task, final_answer)
 
     return {
-        "status": "ok" if accepted else "max_iterations_reached",
+        "status": "ok" if accepted else stop_reason,
         "task_type": task_type,
+        "iterations_used": iterations_used,
         "plan": plan,
         "analysis": analysis,
         "criticism": criticism,
