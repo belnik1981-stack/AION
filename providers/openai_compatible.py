@@ -17,6 +17,7 @@ from providers.base import BaseProvider, ProviderError
 
 
 _REASONING_EFFORTS = {"max", "xhigh", "high", "medium", "low", "minimal", "none"}
+_TRUNCATION_REASONS = {"length", "max_tokens", "max_output_tokens"}
 
 
 def _env_flag(name: str, default: bool) -> bool:
@@ -85,6 +86,16 @@ class OpenAICompatibleProvider(BaseProvider):
         except (KeyError, IndexError, TypeError) as exc:
             raise ProviderError("Некорректная структура ответа LLM: отсутствует content.") from exc
 
+        finish_reason = str(choice.get("finish_reason") or "").strip().lower()
+        native_finish_reason = str(choice.get("native_finish_reason") or "").strip().lower()
+        if finish_reason in _TRUNCATION_REASONS or native_finish_reason in _TRUNCATION_REASONS:
+            raise ProviderError(
+                "Ответ модели обрезан по лимиту вывода и не принят как завершённый: "
+                f"finish_reason={choice.get('finish_reason')!r}, "
+                f"native_finish_reason={choice.get('native_finish_reason')!r}. "
+                "Увеличьте бюджет токенов или сократите требуемый формат ответа."
+            )
+
         if not isinstance(content, str) or not content.strip():
             usage = data.get("usage") or {}
             details = usage.get("completion_tokens_details") or {}
@@ -126,15 +137,15 @@ class OpenAICompatibleProvider(BaseProvider):
 
         self._enforce_cost_policy()
 
-        effective_max_tokens = self.max_tokens if max_tokens is None else int(max_tokens)
-        if effective_max_tokens <= 0:
+        endpoint = f"{self.api_url}/chat/completions"
+        request_max_tokens = int(max_tokens) if max_tokens is not None else self.max_tokens
+        if request_max_tokens <= 0:
             raise ProviderError("max_tokens должен быть > 0")
 
-        endpoint = f"{self.api_url}/chat/completions"
         payload = {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": effective_max_tokens,
+            "max_tokens": request_max_tokens,
         }
 
         if self._is_openrouter() and self.reasoning_effort:
@@ -162,6 +173,7 @@ class OpenAICompatibleProvider(BaseProvider):
             usage = data.get("usage") or {}
             cost = usage.get("cost")
             details = usage.get("completion_tokens_details") or {}
+            choice = (data.get("choices") or [{}])[0] or {}
             self.last_response_meta = {
                 "model": data.get("model"),
                 "provider": data.get("provider"),
@@ -169,7 +181,9 @@ class OpenAICompatibleProvider(BaseProvider):
                 "total_tokens": usage.get("total_tokens"),
                 "completion_tokens": usage.get("completion_tokens"),
                 "reasoning_tokens": details.get("reasoning_tokens"),
-                "max_tokens_requested": effective_max_tokens,
+                "finish_reason": choice.get("finish_reason"),
+                "native_finish_reason": choice.get("native_finish_reason"),
+                "requested_max_tokens": request_max_tokens,
             }
 
             if self.free_only and cost not in (None, 0, 0.0, "0", "0.0"):
