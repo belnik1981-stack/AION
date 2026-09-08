@@ -1,10 +1,13 @@
 """
 AION Agent Roles (TMAO-style pipeline agents)
 
-Каждая роль строит собственный prompt, но все роли обязаны получать
-единый governance-context из Truth layer. Новых HTTP-клиентов не создаётся:
-провайдер, ключ и сетевые параметры остаются едиными для всей системы.
+Каждая роль строит собственный prompt, но все роли получают единый
+read-only governance-context из Truth layer. Для устойчивости pipeline
+используются раздельные бюджеты токенов по ролям: промежуточные этапы
+должны быть компактными, финальный синтез получает больший бюджет.
 """
+
+import os
 
 from core.llm import ask_llm
 from core.truth import get_principles, get_execution_limits
@@ -12,26 +15,38 @@ from core.truth import get_principles, get_execution_limits
 
 ROLE_INSTRUCTIONS = {
     "planner": (
-        "Ты — Planner. Разбей задачу пользователя на чёткие логические шаги. "
-        "Формат: нумерованный список. Будь лаконичен."
+        "Ты — Planner. Составь краткий рабочий план проверки. "
+        "Не пиши длинные объяснения. Максимум 6 пунктов."
     ),
     "analyst": (
-        "Ты — Analyst. На основе плана и задачи проведи детальный анализ. "
-        "Проверь факты, логику и структуру."
+        "Ты — Analyst. Проведи содержательный анализ по плану. "
+        "Сосредоточься только на аргументах, неопределённостях и проверяемых выводах."
     ),
     "critic": (
-        "Ты — Critic. Найди ошибки, противоречия и слабые места в материале. "
-        "Если всё корректно — напиши 'OK'. Если есть проблемы — опиши их кратко."
+        "Ты — Critic. Найди только реальные ошибки, противоречия, пропуски и обрывы. "
+        "Если существенных дефектов нет — ответь ровно 'OK'."
     ),
     "synthesizer": (
-        "Ты — Synthesizer. Собери финальный, полный и понятный ответ "
-        "на основе плана, анализа и критики. Будь чётким и структурированным."
+        "Ты — Synthesizer. Сформируй завершённый финальный ответ. "
+        "Исправь замечания Critic. Не копируй промежуточные тексты целиком. "
+        "Ответ должен иметь явный итоговый вывод и не обрываться."
     ),
 }
 
 
+def _budget(name: str, default: int) -> int:
+    return max(64, int(os.getenv(name, default)))
+
+
+ROLE_BUDGETS = {
+    "planner": lambda: _budget("AION_PLANNER_TOKENS", 220),
+    "analyst": lambda: _budget("AION_ANALYST_TOKENS", 420),
+    "critic": lambda: _budget("AION_CRITIC_TOKENS", 260),
+    "synthesizer": lambda: _budget("AION_SYNTHESIZER_TOKENS", 700),
+}
+
+
 def governance_context() -> str:
-    """Единый read-only контекст Truth layer для каждого агента pipeline."""
     principles = get_principles()
     limits = get_execution_limits()
     principle_lines = "\n".join(f"- {item}" for item in principles)
@@ -52,7 +67,7 @@ def _ask(role: str, content: str) -> str:
         f"РАБОЧИЙ МАТЕРИАЛ:\n{content}"
     )
     try:
-        result = ask_llm(prompt)
+        result = ask_llm(prompt, max_tokens=ROLE_BUDGETS[role]())
         if not isinstance(result, str) or not result.strip():
             raise ValueError("LLM вернула пустой ответ")
         return result.strip()
@@ -65,31 +80,42 @@ def planner(task: str) -> str:
 
 
 def analyst(task: str, plan: str) -> str:
-    content = f"Исходная задача:\n{task}\n\nПлан:\n{plan}\n\nПроведи детальный анализ."
+    content = (
+        f"Исходная задача:\n{task}\n\n"
+        f"Краткий план:\n{plan}\n\n"
+        "Дай анализ без повторного переписывания плана."
+    )
     return _ask("analyst", content)
 
 
 def critic(task: str, plan: str, analysis: str) -> str:
     content = (
-        f"Исходная задача:\n{task}\n\nПлан:\n{plan}\n\nАнализ:\n{analysis}\n\n"
-        "Найди ошибки и слабые места."
+        f"Исходная задача:\n{task}\n\n"
+        f"План:\n{plan}\n\n"
+        f"Анализ:\n{analysis}\n\n"
+        "Укажи только существенные дефекты, которые нужно исправить в финальном ответе."
     )
     return _ask("critic", content)
 
 
 def synthesizer(task: str, plan: str, analysis: str, criticism: str) -> str:
     content = (
-        f"Исходная задача:\n{task}\n\nПлан:\n{plan}\n\nАнализ:\n{analysis}\n\n"
-        f"Критика:\n{criticism}\n\nСобери финальный ответ для пользователя."
+        f"Исходная задача:\n{task}\n\n"
+        f"План:\n{plan}\n\n"
+        f"Анализ:\n{analysis}\n\n"
+        f"Замечания Critic:\n{criticism}\n\n"
+        "Сформируй самостоятельный завершённый ответ. Не копируй служебные заголовки pipeline."
     )
     return _ask("synthesizer", content)
 
 
 def final_critic_check(task: str, final_answer: str) -> tuple:
     content = (
-        f"Задача пользователя:\n{task}\n\nФинальный ответ:\n{final_answer}\n\n"
-        "Оцени финальный ответ. Если всё корректно — напиши 'OK'. Если есть проблемы — опиши их."
+        f"Задача пользователя:\n{task}\n\n"
+        f"Финальный ответ:\n{final_answer}\n\n"
+        "Проверь: завершённость, отсутствие обрыва, соответствие задаче, логические ошибки, "
+        "сохранение неопределённости. Если существенных проблем нет — ответь ровно OK."
     )
     critique = _ask("critic", content)
-    is_ok = critique.strip().upper().startswith("OK")
+    is_ok = critique.strip().upper() == "OK"
     return is_ok, critique
