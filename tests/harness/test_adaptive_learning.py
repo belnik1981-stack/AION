@@ -1,7 +1,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from learning.controller import AdaptiveLearningController
+from learning.controller import AdaptiveLearningController, LearningPolicy
 
 
 with TemporaryDirectory() as tmp:
@@ -59,5 +59,47 @@ with TemporaryDirectory() as tmp:
     status = controller.status()
     assert status["truth_modified"] is False
     assert status["base_model_weights_modified"] is False
+
+with TemporaryDirectory() as tmp:
+    root = Path(tmp)
+    anti_loop = AdaptiveLearningController(
+        state_path=root / "state.json",
+        audit_path=root / "audit.jsonl",
+        policy=LearningPolicy(max_consecutive_rollbacks=3, recovery_observations_required=2),
+    )
+
+    for expected_streak in (1, 2, 3):
+        outcome = anti_loop.record_verified_outcome(
+            kind="model",
+            identity="loop-model",
+            supported=True,
+            evidence_score=1.9,
+            cleanliness_passed=True,
+            regression_detected=True,
+        )
+        assert outcome["rolled_back"] is True
+        assert outcome["rollback_streak"] == expected_streak
+
+    assert outcome["frozen"] is True
+
+    blocked = anti_loop.record_verified_outcome(
+        kind="model",
+        identity="loop-model",
+        supported=True,
+        evidence_score=1.9,
+        cleanliness_passed=True,
+    )
+    assert blocked["updated"] is False
+    assert blocked["frozen"] is True
+
+    recovered = anti_loop.record_verified_outcome(
+        kind="model",
+        identity="loop-model",
+        supported=True,
+        evidence_score=1.9,
+        cleanliness_passed=True,
+    )
+    assert recovered["recovered"] is True
+    assert recovered["frozen"] is False
 
 print("ADAPTIVE LEARNING TEST: PASS")
