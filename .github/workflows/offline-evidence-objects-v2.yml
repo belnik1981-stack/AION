@@ -1,0 +1,28 @@
+name: Offline evidence-objects v2 trial
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deterministic-evidence-trial:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile offline trial code
+        run: python -m compileall -q trials tools/check_repository_hygiene.py tests/harness
+      - name: Check repository hygiene
+        run: python -m tests.harness.test_repository_hygiene
+      - name: Preserve v1 regression baseline
+        run: python -m tests.harness.test_information_cleaning_trial
+      - name: Run Evidence Object v2 safety harness
+        run: python -m tests.harness.test_evidence_objects_v2
+      - name: Run reproducible v2 fixture
+        run: python -m trials.evidence_objects_v2.run_trial --output "$RUNNER_TEMP/evidence-objects-v2-result.json"

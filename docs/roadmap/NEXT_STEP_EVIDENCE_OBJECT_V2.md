@@ -1,7 +1,8 @@
 # Следующий этап: Evidence Object / Claim Object v2
 
 Дата решения: 2026-09-08  
-Статус: **PLANNED — runtime integration not authorized**
+Дата реализации offline-прототипа: 2026-09-09  
+Статус: **IMPLEMENTED FOR OFFLINE TRIAL — runtime integration not authorized**
 
 ## Цель
 
@@ -9,7 +10,9 @@
 
 ## Один следующий шаг
 
-Создать JSON Schema для `RawArtifact`, `EvidenceObject` и `ClaimObject`, детерминированный validator и негативные fixtures. Этап завершён, когда повреждённый hash, отсутствующий provenance, ложная независимость, конфликтующая версия и неизвестное поле завершаются fail-closed воспроизводимым тестом.
+Созданы JSON Schema для `RawArtifact`, `EvidenceObject` и `ClaimObject`, детерминированный validator и adversarial fixtures. Повреждённый hash, отсутствующий provenance, ложная независимость, очевидные алиасы roots, конфликтующая версия, неизвестное поле, stale timestamps, path traversal, provenance cycle и подмена отчёта завершаются fail-closed воспроизводимым тестом.
+
+Реализация: `trials/evidence_objects_v2`. Архитектурная граница: [ADR-0002](../architecture/ADR-0002-EVIDENCE_OBJECTS_V2.md). Инструкция испытания: [EVIDENCE_OBJECTS_V2](../trials/EVIDENCE_OBJECTS_V2.md).
 
 ## Минимальные объекты
 
@@ -24,22 +27,21 @@
 
 ### EvidenceObject
 
-- ссылка на RawArtifact;
-- точный извлечённый фрагмент или координаты;
-- extraction method/version;
-- integrity status;
-- фактический dependency root и метод его проверки;
-- связи `supports`, `contradicts`, `corrects`, `supersedes`.
+- точная ссылка на версию RawArtifact и его SHA-256;
+- byte-span, SHA-256 фрагмента и extraction method/version;
+- связь `supports`, `contradicts` или `context`;
+- заявленные dependency roots, сверяемые validator с provenance DAG;
+- quality vector для ограниченного gate.
 
 ### ClaimObject
 
 - одно атомарное утверждение;
 - тип: observation/source_statement/inference/assumption/prediction;
 - область применимости;
-- supporting и contradicting evidence;
+- ссылки на evidence, чьи отношения задают support/contradiction/context;
 - вектор качества без единого «процента истины»;
-- статус, допустимые и запрещённые виды использования;
-- revision и decision trace.
+- допустимые и запрещённые виды использования;
+- revision; decision trace формируется отдельным отчётом validator.
 
 ## Порядок реализации
 
@@ -47,7 +49,7 @@
 2. **P0 — integrity/provenance:** пересчёт hash, явная цепочка transformations, dependency-root evidence; домен не считать независимым корнем.
 3. **P0 — adversarial fixtures:** дубликаты, stale data, производные публикации, конфликт метаданных, подмена admission token, prompt injection, секреты и повреждённые объекты.
 4. **P0 — gate recomputation:** downstream повторно вычисляет контракт по связанным объектам; входное `decision=verified` не считается полномочием.
-5. **P1 — append-only candidate store:** атомарная запись, блокировка параллельного изменения, revision/correction вместо перезаписи истории.
+5. **P1 — append-only candidate store (следующий незавершённый этап):** атомарная запись, блокировка параллельного изменения, revision/correction вместо перезаписи истории.
 6. **P1 — runtime safety отдельно:** общий deadline, общий лимит LLM/tool calls, response-size cap, cancellation и fault-injection tests до любого сетевого пилота.
 7. **P1 — отдельный ADR интеграции:** только после независимого воспроизведения; Truth и policy остаются недоступными автоматическому продвижению.
 
@@ -70,3 +72,7 @@
 - изменение Truth/policy;
 - запуск автономных действий;
 - платные или реальные provider-вызовы.
+
+## Оставшееся ограничение v2
+
+Текущий validator проверяет целостность и внутреннюю согласованность переданного provenance graph, но не внешнюю подлинность его полей и не семантическую истинность claim. Два намеренно ложно заявленных первичных источника нельзя распознать как зависимые без внешнего evidence или подписи. Поэтому v2 остаётся offline-прототипом и не получает права на promotion или исполнение.

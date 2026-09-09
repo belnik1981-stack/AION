@@ -1,0 +1,138 @@
+{
+  "contract_version": "aion-evidence-objects-v2",
+  "bundle_id": "valid-independent-roots",
+  "evaluation_time": "2026-09-09T00:00:00Z",
+  "raw_artifacts": [
+    {
+      "object_type": "raw_artifact",
+      "schema_version": "2.0",
+      "artifact_id": "raw-a",
+      "artifact_version": 1,
+      "media_type": "text/plain",
+      "byte_length": 58,
+      "content_sha256": "110c77de6c840ea15c0030c1ba903a9aab29f632d620be7c60efc1bca1277ba2",
+      "payload_path": "raw/root-a.txt",
+      "privacy_class": "public_synthetic",
+      "access_policy": "offline_test_only",
+      "provenance": {
+        "origin_locator": "fixture://independent-root-a",
+        "acquired_at": "2026-09-09T00:00:00Z",
+        "observed_at": "2026-09-09T00:00:00Z",
+        "acquisition_method": "bundled_offline_fixture",
+        "derived_from": [],
+        "transformations": []
+      }
+    },
+    {
+      "object_type": "raw_artifact",
+      "schema_version": "2.0",
+      "artifact_id": "raw-b",
+      "artifact_version": 1,
+      "media_type": "text/plain",
+      "byte_length": 69,
+      "content_sha256": "c0d88798fa278178bc2f3c1447ba679719124b81008bddb11dd094ba7c6d28f2",
+      "payload_path": "raw/root-b.txt",
+      "privacy_class": "public_synthetic",
+      "access_policy": "offline_test_only",
+      "provenance": {
+        "origin_locator": "fixture://independent-root-b",
+        "acquired_at": "2026-09-09T00:00:00Z",
+        "observed_at": "2026-09-09T00:00:00Z",
+        "acquisition_method": "bundled_offline_fixture",
+        "derived_from": [],
+        "transformations": []
+      }
+    }
+  ],
+  "evidence_objects": [
+    {
+      "object_type": "evidence_object",
+      "schema_version": "2.0",
+      "evidence_id": "evidence-a",
+      "evidence_version": 1,
+      "raw_artifact_ref": {
+        "artifact_id": "raw-a",
+        "artifact_version": 1,
+        "content_sha256": "110c77de6c840ea15c0030c1ba903a9aab29f632d620be7c60efc1bca1277ba2"
+      },
+      "claim_ref": {
+        "claim_id": "bounded-analysis-claim",
+        "claim_version": 1
+      },
+      "extraction": {
+        "method": "utf8_byte_span",
+        "method_version": "1.0",
+        "start_byte": 0,
+        "end_byte": 58,
+        "fragment_sha256": "110c77de6c840ea15c0030c1ba903a9aab29f632d620be7c60efc1bca1277ba2"
+      },
+      "relation": "supports",
+      "declared_dependency_roots": ["raw-a@1"],
+      "quality": {
+        "methodology": "described",
+        "primary_data": "available",
+        "reproducibility": "reproduced"
+      }
+    },
+    {
+      "object_type": "evidence_object",
+      "schema_version": "2.0",
+      "evidence_id": "evidence-b",
+      "evidence_version": 1,
+      "raw_artifact_ref": {
+        "artifact_id": "raw-b",
+        "artifact_version": 1,
+        "content_sha256": "c0d88798fa278178bc2f3c1447ba679719124b81008bddb11dd094ba7c6d28f2"
+      },
+      "claim_ref": {
+        "claim_id": "bounded-analysis-claim",
+        "claim_version": 1
+      },
+      "extraction": {
+        "method": "utf8_byte_span",
+        "method_version": "1.0",
+        "start_byte": 0,
+        "end_byte": 69,
+        "fragment_sha256": "c0d88798fa278178bc2f3c1447ba679719124b81008bddb11dd094ba7c6d28f2"
+      },
+      "relation": "supports",
+      "declared_dependency_roots": ["raw-b@1"],
+      "quality": {
+        "methodology": "described",
+        "primary_data": "available",
+        "reproducibility": "reproduced"
+      }
+    }
+  ],
+  "claim_objects": [
+    {
+      "object_type": "claim_object",
+      "schema_version": "2.0",
+      "claim_id": "bounded-analysis-claim",
+      "claim_version": 1,
+      "text": "Two independent fixture roots support use of this record for bounded analysis.",
+      "claim_type": "inference",
+      "scope": "Synthetic offline trial only; no external execution or memory promotion.",
+      "risk_class": "R2",
+      "evidence_refs": [
+        {"evidence_id": "evidence-a", "evidence_version": 1},
+        {"evidence_id": "evidence-b", "evidence_version": 1}
+      ],
+      "evidence_policy": {
+        "max_age_days": 30
+      },
+      "valid_for": ["analysis"],
+      "prohibited_for": [
+        "execution",
+        "memory_promotion",
+        "truth_update",
+        "network_action"
+      ],
+      "revision": {
+        "previous_claim_ref": null,
+        "changed_at": "2026-09-09T00:00:00Z",
+        "reason": null
+      }
+    }
+  ]
+}

@@ -1,67 +1,45 @@
 # AION
 
-Версия: 0.1.0
-
-Статус: Проектирование
-
----
+Версия ядра: `0.1.0`  
+Статус: исследовательский прототип; автономное и production-использование не разрешено.
 
 ## Назначение
 
-AION — это модульная AI-система, разрабатываемая на смартфоне Android (Termux), ориентированная на долгосрочную устойчивость, расширяемость и независимость от конкретной модели искусственного интеллекта.
+AION — модульная AI-система, разрабатываемая с учётом работы через Android/Termux. Текущий инженерный приоритет — проверяемые ограничения, прослеживаемость данных и отделение Truth от изменяемой памяти и модельных ответов.
 
----
+## Фактические контуры
 
-## Главные цели
+- `core/` — существующий runtime AION и OpenAI-compatible provider;
+- `knowledge/truth/` — read-only governance-слой;
+- `trials/information_cleaning_v1/` — детерминированная очистка синтетических records;
+- `trials/evidence_objects_v2/` — offline RawArtifact/EvidenceObject/ClaimObject, integrity/provenance graph и fail-closed gate;
+- `tests/harness/` — локальные архитектурные и safety-проверки.
 
-- Создать архитектуру, которую можно развивать годами.
-- Минимизировать вероятность ошибок за счёт инженерных принципов.
-- Сделать проект переносимым между различными LLM.
-- Использовать Git как источник истории изменений.
-- Документация имеет приоритет над реализацией.
+Offline trials не подключены к runtime, provider, сети, существующей memory или автономным действиям. Максимальный результат evidence-контуров — `ANALYSIS_ONLY` при `execution_authorized=false`.
 
----
+## Проверка v2
 
-## Основные принципы
+```bash
+python -m tests.harness.test_repository_hygiene
+python -m tests.harness.test_information_cleaning_trial
+python -m tests.harness.test_evidence_objects_v2
+python -m trials.evidence_objects_v2.run_trial --output trial_output/evidence-v2.json
+```
 
-1. Архитектура важнее скорости.
-2. Любое изменение должно быть обратимым.
-3. Перед изменением проводится проверка.
-4. После изменения выполняется проверка результата.
-5. Любое архитектурное решение документируется.
-6. Минимум внешних зависимостей.
-7. Простота важнее сложности.
-8. Код не должен существовать без понятной цели.
+API-ключ для этих команд не требуется.
 
----
+## Документы состояния
 
-## Структура проекта
+- [PROJECT_STATE](PROJECT_STATE.md)
+- [ADR-0001: information cleaning v1](architecture/ADR-0001-INFORMATION_CLEANING_TRIAL_V1.md)
+- [ADR-0002: Evidence Objects v2](architecture/ADR-0002-EVIDENCE_OBJECTS_V2.md)
+- [Инструкция v2](trials/EVIDENCE_OBJECTS_V2.md)
+- [Source manifest](egde/SOURCE_MANIFEST_2026-09-08.md)
 
-archive/   — контрольные точки и резервные копии
+## Открытые ограничения
 
-core/      — ядро системы
-
-docs/      — документация проекта
-
-workspace/ — рабочая область для разработки
-
----
-
-## Текущий этап
-
-Создание архитектурного фундамента.
-
----
-
-## Следующая задача
-
-Создание Конституции проекта.
-
----
-
-Последнее обновление:
-
-CP-006
-cat > ~/AION/docs/README.md
-cat ~/AION/docs/README.md
-
+- внешняя подлинность provenance и скрытые зависимости источников не доказаны;
+- semantic verification claim не реализована;
+- promotion в candidate/long-term memory запрещён;
+- единый runtime deadline, суммарный лимит LLM/tool calls и response-size cap не закрыты;
+- merge в `master` требует отдельного решения владельца.
