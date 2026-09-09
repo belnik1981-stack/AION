@@ -75,7 +75,7 @@ python -m tests.harness.test_information_cleaning_trial
 
 | Сценарий | Проверяемое условие | Результат |
 | --- | --- | --- |
-| Samsung Notes negative control | 10 релевантных записей → 2 root → только 1 verified; risk=`critical` | `DENIED` |
+| Синтетический Samsung Notes/PDF negative control | 10 релевантных записей → 2 root → только 1 verified; risk=`critical` | `DENIED` |
 | Positive analytical control | 2 verified root, дубликат удалён, secret/email редактированы | `ANALYSIS_ONLY` |
 | Contradiction control | порог поддержки выполнен, но есть проверенное контрдоказательство | `DENIED` |
 

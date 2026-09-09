@@ -47,7 +47,7 @@ Supporting root учитывается, только если его provenance 
 
 ## Контрольные сценарии
 
-1. **Negative control из Samsung Notes:** посторонний HTML помещается в карантин; 10 релевантных записей сворачиваются в 2 dependency roots; один root проверен, другой partial; risk=`critical`; результат `DENIED`.
+1. **Синтетический negative control по структуре переданной Samsung Notes/PDF-заметки:** посторонний HTML помещается в карантин; 10 релевантных записей сворачиваются в 2 dependency roots; один root проверен, другой partial; risk=`critical`; результат `DENIED`. Это не результат автоматического разбора исходного SDOCX/PDF.
 2. **Positive analytical control:** два полностью проверенных независимых root без материального противоречия; результат `ANALYSIS_ONLY`, `execution_authorized=false`.
 3. **Contradiction control:** минимальный supporting-порог выполнен, но присутствует проверенное контрдоказательство; результат `DENIED`.
 
