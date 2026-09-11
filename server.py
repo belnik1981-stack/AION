@@ -34,23 +34,23 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <h2>AION Control Panel</h2>
 
     <div class="card">
-        <h3>[EXECUTE TASK — single cycle]</h3>
+        <h3>[CONTROL — single model / single cycle]</h3>
         <form action="/run" method="POST">
-            <textarea name="user_prompt" placeholder="Введите задачу или инструкцию для AION..."></textarea>
-            <button type="submit">Запустить цикл AION</button>
+            <textarea name="user_prompt" placeholder="Контрольный запрос одной модели..."></textarea>
+            <button type="submit">Запустить контрольный цикл</button>
         </form>
     </div>
 
     <div class="card">
-        <h3>[EXECUTE TASK — TMAO pipeline: Planner/Analyst/Critic/Synthesizer]</h3>
+        <h3>[AION PIPELINE — multi-model role rotation when AION_MODELS is set]</h3>
         <form action="/pipeline" method="POST">
-            <textarea name="user_prompt" placeholder="Введите задачу для полного pipeline..."></textarea>
-            <button type="submit" class="pipeline-btn">Запустить pipeline</button>
+            <textarea name="user_prompt" placeholder="Один запрос для сравнения нескольких моделей и ротации ролей..."></textarea>
+            <button type="submit" class="pipeline-btn">Запустить сравнительный pipeline</button>
         </form>
     </div>
 
     <div class="card">
-        <h3>[CURRENT STATE / LAST RESPONSE — single cycle]</h3>
+        <h3>[CURRENT STATE / LAST RESPONSE — control]</h3>
         <pre>{{STATE}}</pre>
     </div>
 
@@ -110,7 +110,6 @@ class AionHandler(BaseHTTPRequestHandler):
             content_length = int(self.headers.get('Content-Length', 0))
             post_data = self.rfile.read(content_length).decode('utf-8')
             parsed_data = urllib.parse.parse_qs(post_data)
-
             user_prompt = parsed_data.get("user_prompt", [""])[0]
 
             try:
@@ -126,7 +125,6 @@ class AionHandler(BaseHTTPRequestHandler):
             content_length = int(self.headers.get('Content-Length', 0))
             post_data = self.rfile.read(content_length).decode('utf-8')
             parsed_data = urllib.parse.parse_qs(post_data)
-
             user_prompt = parsed_data.get("user_prompt", [""])[0].strip()
 
             if user_prompt:
