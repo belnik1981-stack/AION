@@ -6,6 +6,10 @@ AION Pipeline.
 1) каждая модель независимо отвечает на исходную задачу;
 2) роли Planner/Analyst/Critic/Synthesizer/Verifier ротируются между моделями;
 3) телеметрия сохраняет ответы и назначения ролей для анализа расхождений.
+
+Опционально AION_EVIDENCE_BUNDLE указывает на Evidence Objects v2 bundle.
+Bundle проходит fail-closed валидацию и допускается только как analysis-only
+материал; он не становится Truth и не разрешает действия.
 """
 
 from datetime import datetime
@@ -13,6 +17,7 @@ import os
 
 from core.truth import get_execution_limits
 from core.agents import planner, analyst, critic, synthesizer, final_critic_check
+from core.evidence_bridge import EvidenceBridgeError, format_evidence_for_prompt, load_analysis_evidence
 from core.llm import ask_llm
 from memory.store import add_episodic_event
 
@@ -43,6 +48,39 @@ def _models() -> list[str]:
     return result
 
 
+def _evidence_context() -> tuple[str, dict]:
+    path = os.getenv("AION_EVIDENCE_BUNDLE", "").strip()
+    if not path:
+        return "", {"enabled": False}
+    try:
+        evidence = load_analysis_evidence(path)
+    except Exception as exc:
+        return "", {
+            "enabled": True,
+            "status": "rejected",
+            "detail": str(exc),
+        }
+    return format_evidence_for_prompt(evidence), {
+        "enabled": True,
+        "status": evidence["status"],
+        "claim_count": evidence["claim_count"],
+        "bundle_path": evidence["bundle_path"],
+        "execution_authorized": False,
+        "truth_update_authorized": False,
+    }
+
+
+def _task_with_evidence(task: str, evidence_text: str) -> str:
+    if not evidence_text:
+        return task
+    return (
+        f"{task}\n\n{evidence_text}\n\n"
+        "Правило: evidence выше является только проверенным материалом для анализа. "
+        "Не называй его Truth автоматически; различай наблюдение, заявление источника, "
+        "вывод, предположение и прогноз."
+    )
+
+
 def _raw_answer(task: str, model: str) -> str:
     prompt = (
         "Ответь на задачу независимо. Не учитывай ответы других моделей, потому что их ещё нет. "
@@ -55,18 +93,18 @@ def _raw_answer(task: str, model: str) -> str:
         return f"[ОШИБКА:raw] {exc}"
 
 
-def _legacy_pipeline(task: str, task_type: str, max_iterations: int) -> dict:
+def _legacy_pipeline(task: str, task_type: str, max_iterations: int, evidence_meta: dict) -> dict:
     plan = planner(task)
     if plan.startswith("[ОШИБКА"):
-        return {"status": "error", "stage": "planner", "detail": plan}
+        return {"status": "error", "stage": "planner", "detail": plan, "evidence": evidence_meta}
 
     analysis = analyst(task, plan)
     if analysis.startswith("[ОШИБКА"):
-        return {"status": "error", "stage": "analyst", "detail": analysis}
+        return {"status": "error", "stage": "analyst", "detail": analysis, "evidence": evidence_meta}
 
     criticism = critic(task, plan, analysis)
     if criticism.startswith("[ОШИБКА"):
-        return {"status": "error", "stage": "critic", "detail": criticism}
+        return {"status": "error", "stage": "critic", "detail": criticism, "evidence": evidence_meta}
 
     final_answer = None
     accepted = False
@@ -78,13 +116,13 @@ def _legacy_pipeline(task: str, task_type: str, max_iterations: int) -> dict:
         iterations_used = iteration
         final_answer = synthesizer(task, plan, analysis, criticism)
         if final_answer.startswith("[ОШИБКА"):
-            return {"status": "error", "stage": "synthesizer", "detail": final_answer}
+            return {"status": "error", "stage": "synthesizer", "detail": final_answer, "evidence": evidence_meta}
         if previous_final is not None and _norm(final_answer) == _norm(previous_final):
             stop_reason = "stalled_no_progress"
             break
         is_ok, final_critique = final_critic_check(task, final_answer)
         if final_critique.startswith("[ОШИБКА"):
-            return {"status": "error", "stage": "final_critic", "detail": final_critique}
+            return {"status": "error", "stage": "final_critic", "detail": final_critique, "evidence": evidence_meta}
         if is_ok:
             accepted = True
             criticism = "OK"
@@ -101,6 +139,7 @@ def _legacy_pipeline(task: str, task_type: str, max_iterations: int) -> dict:
         "mode": "single_model",
         "task_type": task_type,
         "iterations_used": iterations_used,
+        "evidence": evidence_meta,
         "plan": plan,
         "analysis": analysis,
         "criticism": criticism,
@@ -109,7 +148,7 @@ def _legacy_pipeline(task: str, task_type: str, max_iterations: int) -> dict:
     }
 
 
-def _multi_model_pipeline(task: str, task_type: str, models: list[str], max_iterations: int) -> dict:
+def _multi_model_pipeline(task: str, task_type: str, models: list[str], max_iterations: int, evidence_meta: dict) -> dict:
     raw_answers = {model: _raw_answer(task, model) for model in models}
     usable = {m: a for m, a in raw_answers.items() if not a.startswith("[ОШИБКА")}
     if len(usable) < 2:
@@ -119,6 +158,7 @@ def _multi_model_pipeline(task: str, task_type: str, models: list[str], max_iter
             "detail": "Для сравнительного режима нужны успешные ответы минимум двух разных моделей.",
             "models": models,
             "raw_answers": raw_answers,
+            "evidence": evidence_meta,
         }
 
     raw_bundle = "\n\n".join(f"MODEL {m}:\n{a}" for m, a in usable.items())
@@ -173,6 +213,7 @@ def _multi_model_pipeline(task: str, task_type: str, models: list[str], max_iter
         "task_type": task_type,
         "models": models,
         "independent_model_count": len(usable),
+        "evidence": evidence_meta,
         "raw_answers": raw_answers,
         "rotations_planned": rotations,
         "rotations_used": len(round_results),
@@ -187,7 +228,18 @@ def run_pipeline(task: str) -> dict:
     max_iterations = int(limits.get("max_iterations", 2))
     task_type = router(task)
     models = _models()
+    evidence_text, evidence_meta = _evidence_context()
+
+    if evidence_meta.get("status") == "rejected":
+        return {
+            "status": "error",
+            "stage": "evidence_bridge",
+            "detail": evidence_meta.get("detail"),
+            "evidence": evidence_meta,
+        }
+
+    effective_task = _task_with_evidence(task, evidence_text)
 
     if len(models) >= 2:
-        return _multi_model_pipeline(task, task_type, models, max_iterations)
-    return _legacy_pipeline(task, task_type, max_iterations)
+        return _multi_model_pipeline(effective_task, task_type, models, max_iterations, evidence_meta)
+    return _legacy_pipeline(effective_task, task_type, max_iterations, evidence_meta)
