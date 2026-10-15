@@ -59,6 +59,7 @@ cd ~/AION
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install --upgrade pip
+python -m pip install PyYAML
 ```
 
 ## 4. Полная офлайн-проверка
