@@ -36,8 +36,8 @@ do
 done
 
 echo "[3/4] Reproducible offline trials"
-python trials/information_cleaning_v1/run_trial.py
-python trials/evidence_objects_v2/run_trial.py
+python -m trials.information_cleaning_v1.run_trial
+python -m trials.evidence_objects_v2.run_trial
 
 truth_after_offline="$(sha256sum knowledge/truth/truth.json knowledge/truth/system.yaml)"
 if [[ "$truth_before" != "$truth_after_offline" ]]; then
