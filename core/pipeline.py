@@ -57,7 +57,6 @@ def run_pipeline(task: str) -> dict:
     accepted = False
     cycle_info = None
 
-    for iteration in range(1, max_iterations + 1):
     previous_final = None
     stop_reason = "max_iterations_reached"
     iterations_used = 0
@@ -79,6 +78,8 @@ def run_pipeline(task: str) -> dict:
                 "occurrences": observed.occurrences,
                 "iteration": iteration,
             }
+            stop_reason = "cycle_detected"
+            break
         if previous_final is not None and _norm(final_answer) == _norm(previous_final):
             stop_reason = "stalled_no_progress"
             break
@@ -103,6 +104,7 @@ def run_pipeline(task: str) -> dict:
                 "iteration": iteration,
             }
             criticism = final_critique
+            stop_reason = "cycle_detected"
             break
 
         previous_final = final_answer
@@ -111,13 +113,7 @@ def run_pipeline(task: str) -> dict:
     if final_answer:
         add_episodic_event(task, final_answer)
 
-    if cycle_info is not None:
-        status = "cycle_detected"
-    else:
-        status = "ok" if accepted else "max_iterations_reached"
-
     return {
-        "status": status,
         "status": "ok" if accepted else stop_reason,
         "task_type": task_type,
         "iterations_used": iterations_used,
