@@ -11,6 +11,16 @@ class ProviderError(Exception):
     pass
 
 
+class ProviderTruncatedError(ProviderError):
+    """The model hit its output limit; partial output must not be trusted."""
+    pass
+
+
+class ProviderRateLimitError(ProviderError):
+    """Provider rejected a request for quota/rate reasons; do not retry automatically."""
+    pass
+
+
 class BaseProvider:
     """Базовый контракт любого LLM-провайдера."""
 
