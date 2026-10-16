@@ -71,5 +71,8 @@ jobs:
       - name: Run cycle guard harness
         run: python tests/harness/test_cycle_guard.py
 
+      - name: Run pipeline cycle regression
+        run: python tests/harness/test_pipeline_cycle_regression.py
+
       - name: Run server safety harness
         run: python tests/harness/test_server_safety.py
