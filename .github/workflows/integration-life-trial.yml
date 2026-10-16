@@ -34,5 +34,7 @@ jobs:
         run: sh -n start_app.sh
       - name: Validate one-request live probe script syntax
         run: bash -n scripts/live_probe.sh
+      - name: Validate Critic live probe script syntax
+        run: bash -n scripts/live_critic_probe.sh
       - name: Run bounded offline life trial
         run: bash scripts/cloud_check.sh
