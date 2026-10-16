@@ -12,7 +12,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-BASE = "https://openrouter.ai/api/v1"
+ORIGIN = "https://openrouter.ai"
+BASE = ORIGIN + "/api/v1"
 MODEL_ID = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*/[a-zA-Z0-9][a-zA-Z0-9._:-]{0,100}:free$")
 DETAIL_PATH = re.compile(r"^/api/v1/models/[a-zA-Z0-9][a-zA-Z0-9._-]*/[a-zA-Z0-9][a-zA-Z0-9._:-]{0,125}/endpoints$")
 MIN_COMPLETION = 3200
@@ -83,7 +84,7 @@ def endpoint_url(model):
     links = model.get("links")
     details = links.get("details") if isinstance(links, dict) else None
     if isinstance(details, str) and DETAIL_PATH.fullmatch(details):
-        return BASE + details
+        return ORIGIN + details
     model_id = model["id"]
     author, slug = model_id.split("/", 1)
     return (BASE + "/models/" + quote(author, safe="") + "/" +
