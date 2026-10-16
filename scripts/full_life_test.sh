@@ -32,6 +32,7 @@ for test_file in \
   tests/harness/test_evidence_bridge_runtime.py \
   tests/harness/test_multi_model_runtime_regression.py \
   tests/harness/test_provider_resilience.py \
+  tests/harness/test_free_model_catalog_preflight.py \
   tests/harness/test_agents_runtime_adapter.py \
   tests/harness/test_chat_ingestion.py \
   tests/harness/test_verification_pipeline.py \
