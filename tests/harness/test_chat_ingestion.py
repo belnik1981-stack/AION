@@ -14,6 +14,8 @@ def check(name, condition):
 
 print("========== AION CHAT INGESTION TEST ==========")
 
+fake_key = "sk-or-v1-" + "ABCDEFGHIJKLMNOPQRSTUVWXYZ" + "123456"
+
 sample = [
     {
         "id": "conv-1",
@@ -29,7 +31,7 @@ sample = [
                     "author": {"role": "user"},
                     "content": {
                         "content_type": "text",
-                        "parts": ["Use key sk-or-v1-ABCDEFGHIJKLMNOPQRSTUVWXYZ123456 for this test."],
+                        "parts": [f"Use key {fake_key} for this test."],
                     },
                     "create_time": 1,
                 },
@@ -64,7 +66,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check("secret redaction reported", first["records_with_redactions"] == 1)
 
     stored = store_path.read_text(encoding="utf-8")
-    check("secret absent from store", "sk-or-v1-ABCDEFGHIJKLMNOPQRSTUVWXYZ123456" not in stored)
+    check("secret absent from store", fake_key not in stored)
     check("redaction marker present", "[REDACTED_SECRET]" in stored)
 
     second = import_chat_export(export_path, store_path)
