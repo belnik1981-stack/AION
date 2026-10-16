@@ -1,94 +1,116 @@
-"""OpenRouter live-model selector: deterministic offline regression with no network."""
-from unittest.mock import patch
-from urllib.error import HTTPError
+"""Catalog schema regression, based on real OpenRouter /api/v1/models fields.
 
+No network. This intentionally models free variants whose links.details can
+return 404/empty, so the launcher must not depend on the endpoints API.
+"""
+from datetime import date
 from tools import select_free_openrouter_model as picker
 
 
-def model(identifier, *, prompt="0", completion="0", request="0",
-          text=True, max_tokens=8192, created=100):
+def entry(mid, *, prompt="0", completion="0", request=None, created=100,
+          mandatory=False, default_enabled=False, expires=None,
+          text=True, max_output=32768):
+    prices = {"prompt": prompt, "completion": completion}
+    if request is not None:
+        prices["request"] = request
     return {
-        "id": identifier,
-        "pricing": {"prompt": prompt, "completion": completion, "request": request},
-        "architecture": {"output_modalities": ["text"] if text else ["image"]},
-        "context_length": 32000,
-        "top_provider": {"max_completion_tokens": max_tokens},
-        "supported_parameters": ["max_tokens"],
+        "id": mid,
+        "canonical_slug": mid.removesuffix(":free") + "-20261001",
+        "architecture": {
+            "input_modalities": ["text"],
+            "output_modalities": ["text"] if text else ["image"],
+        },
+        "pricing": prices,
+        "context_length": 262144,
+        "top_provider": {"max_completion_tokens": max_output},
+        "reasoning": {"mandatory": mandatory, "default_enabled": default_enabled},
+        "links": {"details": "/api/v1/models/example/not-public-free-variant/endpoints"},
+        "expiration_date": expires,
         "created": created,
     }
 
 
-valid = model("supplier/active-model:free", created=50)
-valid["links"] = {"details": "/api/v1/models/supplier/active-model-revision/endpoints"}
-stale = model("supplier/stale-model:free", created=100)
-paid = model("supplier/charged-model:free", completion="0.01")
-nonfree = model("supplier/paid-model", prompt="0")
-no_request_pricing = model("supplier/unspecified:free")
-del no_request_pricing["pricing"]["request"]
-nontext = model("supplier/image-model:free", text=False)
-too_small = model("supplier/small-model:free", max_tokens=1000)
+# Shape mirrors the October 2026 public catalog entry:
+# apodex/apodex-1.1-mini:free has 0/0 prompt/completion prices,
+# no 'request' price, canonical_slug and links.details (not chat status).
+real_shape = entry("apodex/apodex-1.1-mini:free", created=1790875335,
+                   max_output=235929)
+real_shape["canonical_slug"] = "apodex/apodex-1.1-mini-20261001"
+real_shape["links"] = {
+    "details": "/api/v1/models/apodex/apodex-1.1-mini-20261001/endpoints"
+}
+assert picker.zero_price(real_shape["pricing"])
+assert picker.eligible_models([real_shape], today=date(2026, 10, 17)) == [
+    "apodex/apodex-1.1-mini:free"
+]
 
-catalog = [paid, nonfree, nontext, too_small, valid, stale]
-candidates = picker.eligible_models(catalog)
-assert candidates == ["supplier/stale-model:free", "supplier/active-model:free"], candidates
-assert picker.zero_price(valid["pricing"])
-assert not picker.zero_price(paid["pricing"])
-assert picker.zero_price(no_request_pricing["pricing"])
-assert picker.eligible_models([no_request_pricing]) == ["supplier/unspecified:free"]
-assert not picker.zero_price({"prompt": "0", "completion": "0", "request": "0.0001"})
-assert not picker.zero_price({"prompt": "0", "completion": "0", "internal_reasoning": "0.001"})
+bad_paid = entry("vendor/paid:free", completion="0.0002")
+bad_surcharge = entry("vendor/surcharge:free", request="0.001")
+bad_reasoning_cost = entry("vendor/reasoning-paid:free")
+bad_reasoning_cost["pricing"]["internal_reasoning"] = "0.01"
+bad_cache_cost = entry("vendor/cache-paid:free")
+bad_cache_cost["pricing"]["input_cache_read"] = "0.01"
+bad_override = entry("vendor/override-paid:free")
+bad_override["pricing"]["overrides"] = [{"min_prompt_tokens": 999, "completion": "0.03"}]
+bad_old = entry("vendor/expired:free", expires="2026-10-01")
+bad_nonfree = entry("vendor/paid", prompt="0")
+bad_nontext = entry("vendor/image:free", text=False)
+bad_small = entry("vendor/small:free", max_output=512)
+valid_nonreasoning = entry("vendor/nonreasoning:free", created=10)
+valid_reasoning = entry("vendor/mandatory:free", mandatory=True, created=300)
+valid_free = [real_shape, valid_nonreasoning, valid_reasoning]
+
+candidates = picker.eligible_models(valid_free + [
+    bad_paid, bad_surcharge, bad_reasoning_cost, bad_cache_cost,
+    bad_override, bad_old, bad_nonfree, bad_nontext, bad_small
+], today=date(2026, 10, 17))
+assert candidates == [
+    "apodex/apodex-1.1-mini:free",
+    "vendor/nonreasoning:free",
+    "vendor/mandatory:free",
+], candidates
 assert not picker.zero_price({"prompt": "0"})
-assert picker.endpoint_url(valid) == picker.BASE + "/models/supplier/active-model-revision/endpoints"
-invalid_link = model("supplier/active-model:free")
-invalid_link["links"] = {"details": "https://evil.example/api/v1/models/anything/endpoints"}
-assert picker.endpoint_url(invalid_link) == picker.BASE + "/models/supplier/active-model:free/endpoints"
-assert not picker.zero_price({"prompt": "NaN", "completion": "0", "request": "0"})
-assert not picker.zero_price({"prompt": "-0.01", "completion": "0", "request": "0"})
+assert not picker.zero_price({"prompt": "NaN", "completion": "0"})
+assert not picker.zero_price({"prompt": "-0.1", "completion": "0"})
+assert picker.zero_price({"prompt": "0", "completion": "0"})
+assert picker.zero_price({"prompt": "0", "completion": "0", "request": "0"})
+assert not picker.zero_price({"prompt": "0", "completion": "0", "overrides": "bad"})
+
 
 calls = []
 def mock_fetch(url, key):
     calls.append(url)
-    assert key == "mock-private-key"
-    if url.endswith("/models"):
-        return {"data": catalog}
-    if "stale-model" in url:
-        raise HTTPError(url, 404, "Not Found", {}, None)
-    if "active-model-revision" in url:
-        return {"data": {"endpoints": [{"name": "free endpoint",
-                                        "pricing": {"prompt": "0", "completion": "0"}}]}}
-    raise AssertionError("No other model may be considered: " + url)
+    assert key == "synthetic-test-key"
+    if url == picker.BASE + "/models":
+        return {"data": valid_free}
+    raise AssertionError("Endpoint lookup must never determine model availability: " + url)
 
-with patch.object(picker, "fetch_json", mock_fetch):
-    chosen = picker.catalog_selection("mock-private-key")
-assert chosen == "supplier/active-model:free", chosen
-assert len(calls) == 3, calls
-assert not any("/chat/" in call for call in calls)
 
-with patch.object(picker, "fetch_json", mock_fetch):
-    chosen = picker.catalog_selection("mock-private-key", "supplier/active-model:free")
-assert chosen == "supplier/active-model:free"
+selected = picker.catalog_selection("synthetic-test-key", fetcher=mock_fetch)
+assert selected == "apodex/apodex-1.1-mini:free", selected
+assert calls == [picker.BASE + "/models"], calls
+
+calls.clear()
+selected = picker.catalog_selection(
+    "synthetic-test-key", requested="vendor/mandatory:free",
+    fetcher=mock_fetch
+)
+assert selected == "vendor/mandatory:free"
+assert calls == [picker.BASE + "/models"], calls
+
+for wrong in ("vendor/paid", "vendor/missing:free", "openai/gpt-6-luna"):
+    try:
+        picker.catalog_selection("synthetic-test-key", requested=wrong, fetcher=mock_fetch)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Explicit paid or unavailable model accepted: " + wrong)
+
 try:
-    with patch.object(picker, "fetch_json", mock_fetch):
-        picker.catalog_selection("mock-private-key", "supplier/charged-model:free")
+    picker.catalog_selection("synthetic-test-key", fetcher=lambda url, key: {"data": []})
 except ValueError:
     pass
 else:
-    raise AssertionError("Must reject paid or unlisted explicit model")
-try:
-    with patch.object(picker, "fetch_json", mock_fetch):
-        picker.catalog_selection("mock-private-key", "x-ai/grok-4-fast:free")
-except ValueError:
-    pass
-else:
-    raise AssertionError("Must reject stale explicit ID absent from current catalog")
-
-assert not picker.endpoints_present({"data": {"endpoints": []}})
-assert not picker.endpoints_present({"data": {"endpoints": [{"pricing": {
-    "prompt": "0", "completion": "0.12", "request": "0"}}]}})
-assert picker.endpoints_present({"data": {"endpoints": [{"name": "endpoint"}]}})
-assert not picker.endpoints_present({"unexpected": True})
-assert picker.endpoints_present({"data": {"endpoints": [{"pricing": {"prompt": "0", "completion": "0"}}]}})
-assert not picker.endpoints_present({"data": {"endpoints": [{"pricing": {
-    "prompt": "0", "completion": "0", "internal_reasoning": "1"}}]}})
+    raise AssertionError("Empty catalog must fail closed")
 
 print("FREE MODEL CATALOG PREFLIGHT: PASS")
