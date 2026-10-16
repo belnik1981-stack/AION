@@ -44,7 +44,7 @@ ROLE_INSTRUCTIONS = {
 
 def _ceiling() -> int:
     # A hard per-role cap prevents accidentally unbounded response budgets.
-    ceiling = int(os.getenv("AION_ROLE_TOKEN_CEILING", "1800"))
+    ceiling = int(os.getenv("AION_ROLE_TOKEN_CEILING", "4096"))
     if ceiling < 128 or ceiling > 8192:
         raise ValueError("AION_ROLE_TOKEN_CEILING должен быть в диапазоне 128..8192")
     return ceiling
@@ -60,9 +60,9 @@ def _budget(name: str, default: int) -> int:
 ROLE_BUDGETS = {
     "planner": lambda: _budget("AION_PLANNER_TOKENS", 512),
     "analyst": lambda: _budget("AION_ANALYST_TOKENS", 900),
-    "critic": lambda: _budget("AION_CRITIC_TOKENS", 450),
-    "verifier": lambda: _budget("AION_FINAL_CRITIC_TOKENS", 256),
-    "synthesizer": lambda: _budget("AION_SYNTHESIZER_TOKENS", 900),
+    "critic": lambda: _budget("AION_CRITIC_TOKENS", 1600),
+    "verifier": lambda: _budget("AION_FINAL_CRITIC_TOKENS", 1200),
+    "synthesizer": lambda: _budget("AION_SYNTHESIZER_TOKENS", 1400),
 }
 
 
