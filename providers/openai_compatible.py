@@ -18,6 +18,10 @@ from providers.base import BaseProvider, ProviderError, ProviderTruncatedError, 
 
 _REASONING_EFFORTS = {"max", "xhigh", "high", "medium", "low", "minimal", "none"}
 _TRUNCATION_REASONS = {"length", "max_tokens", "max_output_tokens"}
+_SAFE_ERROR_TYPES = {"invalid_request", "invalid_prompt", "context_length_exceeded",
+    "max_tokens_exceeded", "token_limit_exceeded", "not_found", "provider_unavailable",
+    "provider_overloaded", "rate_limit_exceeded", "authentication", "timeout",
+    "content_policy_violation"}
 
 
 def _env_flag(name: str, default: bool) -> bool:
@@ -78,6 +82,22 @@ class OpenAICompatibleProvider(BaseProvider):
             )
 
     @staticmethod
+    def _safe_error_type(error: HTTPError) -> str:
+        """Only show a known OpenRouter error category; never echo provider text."""
+        try:
+            payload = json.loads(error.read(4096).decode("utf-8"))
+            error_info = payload.get("error")
+            if not isinstance(error_info, dict):
+                return "unknown"
+            metadata = error_info.get("metadata")
+            if not isinstance(metadata, dict):
+                return "unknown"
+            value = metadata.get("error_type")
+            return value if isinstance(value, str) and value in _SAFE_ERROR_TYPES else "unknown"
+        except (ValueError, TypeError, UnicodeError, OSError):
+            return "unknown"
+
+    @staticmethod
     def _extract_content(data: dict) -> str:
         try:
             choice = data["choices"][0]
@@ -128,6 +148,7 @@ class OpenAICompatibleProvider(BaseProvider):
             "max_tokens": self.max_tokens,
             "free_only": self.free_only,
             "reasoning_effort": self.reasoning_effort or "provider_default",
+            "reasoning_sent": self._is_openrouter() and self.reasoning_effort not in ("", "none"),
             "policy": policy,
             "connection_verified": False,
             "note": "Конфигурация проверена локально; доступность модели проверяется только реальным запросом.",
@@ -150,7 +171,11 @@ class OpenAICompatibleProvider(BaseProvider):
             "max_tokens": request_max_tokens,
         }
 
-        if self._is_openrouter() and self.reasoning_effort:
+        # "none" is not universally supported, especially by mandatory-reasoning
+        # models that may be randomly selected by openrouter/free. Omitting the
+        # field lets the selected provider use its own defaults instead of HTTP 400.
+        # This does NOT guarantee that internal reasoning is disabled.
+        if self._is_openrouter() and self.reasoning_effort not in ("", "none"):
             payload["reasoning"] = {
                 "effort": self.reasoning_effort,
                 "exclude": self.exclude_reasoning,
@@ -209,6 +234,13 @@ class OpenAICompatibleProvider(BaseProvider):
                 raise ProviderError(
                     f"HTTP {e.code}: проверьте ключ и доступ к выбранной модели. "
                     "Ответ провайдера скрыт во избежание утечки данных."
+                ) from e
+            category = self._safe_error_type(e) if e.code == 400 else "unknown"
+            if e.code == 400:
+                raise ProviderError(
+                    f"HTTP 400 ({category}): провайдер отклонил параметры запроса "
+                    "или требования выбранной модели. Проверьте совместимость модели, "
+                    "бюджет токенов и настройку reasoning; исходное сообщение скрыто."
                 ) from e
             raise ProviderError(
                 f"HTTP {e.code}: запрос отклонён провайдером. "
