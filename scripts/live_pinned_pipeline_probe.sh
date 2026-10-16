@@ -18,12 +18,13 @@ if [[ -z "${AION_API_KEY:-}" ]]; then
 fi
 
 PYTHON_BIN="${AION_PROBE_PYTHON:-python3}"
-# Before using any LLM tokens: discover an advertised-zero-priced concrete
-# model with a live provider endpoint. Never fall back to a paid model.
-# An existing AION_MODEL=...:free is treated as an explicit requested choice;
-# openrouter/free or unset model selects one matching free candidate.
+# Catalog metadata verifies declared free pricing, NOT current availability.
+# One tiny real provider call below verifies reachability before the full
+# pipeline. Never fall back to a paid model or automatically retry HTTP 429.
+# AION_MODEL=...:free remains a user-requested exact choice; openrouter/free
+# or unset asks the catalog selector to pin one declared-free candidate.
 SELECTED_MODEL="$("$PYTHON_BIN" tools/select_free_openrouter_model.py)" || {
-  echo "[FAIL] No live requests were made: free model preflight failed." >&2
+  echo "[FAIL] Catalog selection failed; no live requests were made." >&2
   exit 2
 }
 export AION_MODEL="$SELECTED_MODEL"
@@ -35,15 +36,16 @@ if [[ "$AION_MODEL" == "x-ai/grok-4-fast:free" ]]; then
 else
   export AION_DISABLE_REASONING=0
 fi
-echo "[PREFLIGHT] Advertised-free model and endpoint selected: $AION_MODEL"
+echo "[CATALOG] Declared-free model selected (availability not yet checked): $AION_MODEL"
 "$PYTHON_BIN" - <<'PY'
 import hashlib
 import os
 import sys
 from pathlib import Path
 
-from core.llm import llm_status
+from core.llm import ask_llm, llm_status
 from core.pipeline import run_pipeline
+from providers.base import ProviderError
 
 paths = [Path("knowledge/truth/truth.json"), Path("knowledge/truth/system.yaml")]
 before = [hashlib.sha256(p.read_bytes()).hexdigest() for p in paths]
@@ -56,6 +58,18 @@ try:
     if config.get("status") != "ok" or not config.get("free_only"):
         print("[FAIL] Free-only model configuration not accepted.", flush=True)
         raise SystemExit(2)
+    # An actual one-call readiness test; catalog metadata is not availability.
+    print("[LIVE PREFLIGHT] One free-only request before full pipeline.", flush=True)
+    try:
+        reply = ask_llm("Вычисли 2+2. Ответь кратко.", max_tokens=1024)
+    except ProviderError as exc:
+        print("[FAIL] LIVE PREFLIGHT: provider rejected the selected model.", flush=True)
+        print("[DETAIL]", str(exc)[:900], flush=True)
+        raise SystemExit(4)
+    if not isinstance(reply, str) or not reply.strip():
+        print("[FAIL] LIVE PREFLIGHT: empty provider response.", flush=True)
+        raise SystemExit(4)
+    print("[PASS] LIVE PREFLIGHT: model returned a complete response.", flush=True)
     result = run_pipeline(
         "Кратко раздели факт, гипотезу и неизвестное: "
         "вода при нормальном атмосферном давлении замерзает примерно при 0 °C."
