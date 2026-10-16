@@ -31,6 +31,7 @@ for test_file in \
   tests/harness/test_evidence_objects_v2.py \
   tests/harness/test_evidence_bridge_runtime.py \
   tests/harness/test_multi_model_runtime_regression.py \
+  tests/harness/test_provider_resilience.py \
   tests/harness/test_agents_runtime_adapter.py \
   tests/harness/test_chat_ingestion.py \
   tests/harness/test_verification_pipeline.py \
@@ -91,7 +92,7 @@ result = run_pipeline(
     "Кратко раздели факт, гипотезу и неизвестное: вода при нормальном атмосферном давлении замерзает примерно при 0 °C."
 )
 print("[LIVE SINGLE RESULT]", json.dumps(result, ensure_ascii=False))
-if result.get("status") == "error" or not result.get("final_answer"):
+if result.get("status") != "ok" or not result.get("final_answer"):
     raise SystemExit("Single-model pipeline failed")
 PY
 
@@ -109,8 +110,8 @@ result = run_pipeline(
     "Сравни два объяснения и сохрани неопределённость: почему наблюдаемое совпадение само по себе не доказывает причинную связь?"
 )
 print("[LIVE MULTI RESULT]", json.dumps(result, ensure_ascii=False))
-if result.get("status") == "error":
-    raise SystemExit("Multi-model pipeline failed")
+if result.get("status") != "ok":
+    raise SystemExit("Multi-model pipeline did not reach an accepted answer")
 if result.get("mode") != "multi_model_role_rotation":
     raise SystemExit("Multi-model mode was not activated")
 if result.get("independent_model_count", 0) < 2:

@@ -74,5 +74,11 @@ jobs:
       - name: Run pipeline cycle regression
         run: python tests/harness/test_pipeline_cycle_regression.py
 
+      - name: Run provider resilience regression
+        run: python tests/harness/test_provider_resilience.py
+
+      - name: Validate live probe shell
+        run: bash -n scripts/live_probe.sh
+
       - name: Run server safety harness
         run: python tests/harness/test_server_safety.py

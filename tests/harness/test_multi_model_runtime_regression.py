@@ -2,6 +2,7 @@
 import os
 from unittest.mock import patch
 from core import pipeline
+from providers.base import ProviderTruncatedError
 
 
 def run_case(answer_fn, final_check, role_fn=None, max_iterations=3):
@@ -16,7 +17,7 @@ def run_case(answer_fn, final_check, role_fn=None, max_iterations=3):
                 return role_fn(role_name, model)
             return role_name + " by " + str(model)
         return fake
-    with patch.dict(os.environ, {"AION_MODELS": "model-a:free,model-b:free", "AION_EVIDENCE_BUNDLE": ""}):
+    with patch.dict(os.environ, {"AION_MODELS": "model-a:free,model-b:free", "AION_EVIDENCE_BUNDLE": "", "AION_TRUNCATION_RETRY": "1", "AION_ROLE_TOKEN_CEILING": "1800", "AION_ANALYST_TOKENS": "900"}):
         with patch.multiple(
             pipeline,
             get_execution_limits=lambda: {"max_iterations": max_iterations, "timeout_seconds": 30},
@@ -71,5 +72,21 @@ cycle, _, _ = run_case(
 assert cycle["status"] == "cycle_detected", cycle
 assert cycle["rotations_used"] <= 2, cycle
 assert cycle["cycle"]["type"] in {"revisited_state", "direct_repeat"}, cycle
+
+attempts = {}
+def truncated_once(model):
+    attempts[model] = attempts.get(model, 0) + 1
+    if model == "model-a:free" and attempts[model] == 1:
+        raise ProviderTruncatedError("length")
+    return "independent response " + model
+
+
+raw_retry, calls, _ = run_case(
+    truncated_once,
+    lambda task, answer, model=None: (True, "OK"),
+)
+assert raw_retry["status"] == "ok", raw_retry
+assert raw_retry["independent_model_count"] == 2, raw_retry
+assert calls[:3] == ["model-a:free", "model-a:free", "model-b:free"], calls
 
 print("MULTI MODEL RUNTIME REGRESSION: PASS")
