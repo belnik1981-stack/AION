@@ -41,8 +41,14 @@ check("state is dict", isinstance(state, dict))
 print("\n[3] Prompt construction")
 prompt = build_prompt(state)
 check("prompt is string", isinstance(prompt, str))
-check("prompt contains principles", "АРХИТЕКТУРНЫЕ ПРИНЦИПЫ" in prompt)
-check("prompt contains limits", "max_iterations" in prompt)
+check(
+    "prompt contains principles",
+    all(principle in prompt for principle in principles),
+)
+check(
+    "prompt contains limits",
+    all(name in prompt and str(value) in prompt for name, value in limits.items()),
+)
 
 print("\n[4] Provider contract")
 provider = MockProvider()

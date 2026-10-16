@@ -6,23 +6,20 @@ AION Provider Registry
 
 import os
 
-from providers.openai_compatible import (
-    OpenAICompatibleProvider,
-)
+from providers.openai_compatible import OpenAICompatibleProvider
 
 
-def create_provider():
+def create_provider(model: str | None = None):
+    """Создать провайдер; model позволяет выбрать модель для конкретного вызова."""
     provider_name = os.getenv(
         "AION_PROVIDER",
         "openai_compatible",
     ).strip().lower()
 
     if provider_name == "openai_compatible":
-        return OpenAICompatibleProvider()
+        return OpenAICompatibleProvider(model=model)
 
-    raise ValueError(
-        f"Неизвестный провайдер: {provider_name}"
-    )
+    raise ValueError(f"Неизвестный провайдер: {provider_name}")
 
 
 def provider_status():

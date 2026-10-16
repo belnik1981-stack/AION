@@ -1,0 +1,383 @@
+{
+  "fixture_version": 1,
+  "base_bundle": "valid_bundle.json",
+  "cases": [
+    {
+      "case_id": "corrupted-content-hash",
+      "mutations": [
+        {
+          "op": "replace",
+          "path": ["raw_artifacts", 0, "content_sha256"],
+          "value": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "expected_error": "raw_artifact_hash_mismatch"
+    },
+    {
+      "case_id": "missing-provenance",
+      "mutations": [
+        {
+          "op": "remove",
+          "path": ["raw_artifacts", 0, "provenance", "origin_locator"]
+        }
+      ],
+      "expected_error": "schema_required"
+    },
+    {
+      "case_id": "false-independence",
+      "mutations": [
+        {
+          "op": "replace",
+          "path": ["raw_artifacts", 1, "provenance", "derived_from"],
+          "value": [{"artifact_id": "raw-a", "artifact_version": 1}]
+        },
+        {
+          "op": "replace",
+          "path": ["raw_artifacts", 1, "provenance", "transformations"],
+          "value": [
+            {
+              "method": "controlled_fixture_derivation",
+              "tool": "aion-test-builder",
+              "tool_version": "2.0",
+              "input_artifact_refs": [{"artifact_id": "raw-a", "artifact_version": 1}],
+              "output_sha256": "c0d88798fa278178bc2f3c1447ba679719124b81008bddb11dd094ba7c6d28f2"
+            }
+          ]
+        }
+      ],
+      "expected_error": "declared_dependency_roots_mismatch"
+    },
+    {
+      "case_id": "derived-sources-collapse-to-one-root",
+      "mutations": [
+        {
+          "op": "replace",
+          "path": ["raw_artifacts", 1, "provenance", "derived_from"],
+          "value": [{"artifact_id": "raw-a", "artifact_version": 1}]
+        },
+        {
+          "op": "replace",
+          "path": ["raw_artifacts", 1, "provenance", "transformations"],
+          "value": [
+            {
+              "method": "controlled_fixture_derivation",
+              "tool": "aion-test-builder",
+              "tool_version": "2.0",
+              "input_artifact_refs": [{"artifact_id": "raw-a", "artifact_version": 1}],
+              "output_sha256": "c0d88798fa278178bc2f3c1447ba679719124b81008bddb11dd094ba7c6d28f2"
+            }
+          ]
+        },
+        {
+          "op": "replace",
+          "path": ["evidence_objects", 1, "declared_dependency_roots"],
+          "value": ["raw-a@1"]
+        }
+      ],
+      "expected_claim_reason": "insufficient_qualified_dependency_roots"
+    },
+    {
+      "case_id": "derived-artifact-cannot-refresh-stale-root",
+      "mutations": [
+        {
+          "op": "replace",
+          "path": ["raw_artifacts", 0, "provenance", "observed_at"],
+          "value": "2020-01-01T00:00:00Z"
+        },
+        {
+          "op": "replace",
+          "path": ["raw_artifacts", 1, "provenance", "derived_from"],
+          "value": [{"artifact_id": "raw-a", "artifact_version": 1}]
+        },
+        {
+          "op": "replace",
+          "path": ["raw_artifacts", 1, "provenance", "transformations"],
+          "value": [
+            {
+              "method": "controlled_fixture_derivation",
+              "tool": "aion-test-builder",
+              "tool_version": "2.0",
+              "input_artifact_refs": [{"artifact_id": "raw-a", "artifact_version": 1}],
+              "output_sha256": "c0d88798fa278178bc2f3c1447ba679719124b81008bddb11dd094ba7c6d28f2"
+            }
+          ]
+        },
+        {
+          "op": "replace",
+          "path": ["evidence_objects", 1, "declared_dependency_roots"],
+          "value": ["raw-a@1"]
+        },
+        {
+          "op": "replace",
+          "path": ["claim_objects", 0, "risk_class"],
+          "value": "R1"
+        },
+        {
+          "op": "replace",
+          "path": ["claim_objects", 0, "evidence_refs"],
+          "value": [{"evidence_id": "evidence-b", "evidence_version": 1}]
+        }
+      ],
+      "expected_claim_reason": "stale_or_unknown_evidence"
+    },
+    {
+      "case_id": "derived-artifact-before-parent",
+      "mutations": [
+        {
+          "op": "replace",
+          "path": ["raw_artifacts", 1, "provenance", "acquired_at"],
+          "value": "2026-09-08T00:00:00Z"
+        },
+        {
+          "op": "replace",
+          "path": ["raw_artifacts", 1, "provenance", "observed_at"],
+          "value": "2026-09-08T00:00:00Z"
+        },
+        {
+          "op": "replace",
+          "path": ["raw_artifacts", 1, "provenance", "derived_from"],
+          "value": [{"artifact_id": "raw-a", "artifact_version": 1}]
+        },
+        {
+          "op": "replace",
+          "path": ["raw_artifacts", 1, "provenance", "transformations"],
+          "value": [
+            {
+              "method": "controlled_fixture_derivation",
+              "tool": "aion-test-builder",
+              "tool_version": "2.0",
+              "input_artifact_refs": [{"artifact_id": "raw-a", "artifact_version": 1}],
+              "output_sha256": "c0d88798fa278178bc2f3c1447ba679719124b81008bddb11dd094ba7c6d28f2"
+            }
+          ]
+        },
+        {
+          "op": "replace",
+          "path": ["evidence_objects", 1, "declared_dependency_roots"],
+          "value": ["raw-a@1"]
+        }
+      ],
+      "expected_error": "derived_artifact_acquired_before_parent"
+    },
+    {
+      "case_id": "duplicate-primary-content-does-not-inflate",
+      "mutations": [
+        {
+          "op": "replace",
+          "path": ["raw_artifacts", 1, "payload_path"],
+          "value": "raw/root-a.txt"
+        },
+        {
+          "op": "replace",
+          "path": ["raw_artifacts", 1, "byte_length"],
+          "value": 58
+        },
+        {
+          "op": "replace",
+          "path": ["raw_artifacts", 1, "content_sha256"],
+          "value": "110c77de6c840ea15c0030c1ba903a9aab29f632d620be7c60efc1bca1277ba2"
+        },
+        {
+          "op": "replace",
+          "path": ["evidence_objects", 1, "raw_artifact_ref", "content_sha256"],
+          "value": "110c77de6c840ea15c0030c1ba903a9aab29f632d620be7c60efc1bca1277ba2"
+        },
+        {
+          "op": "replace",
+          "path": ["evidence_objects", 1, "extraction", "end_byte"],
+          "value": 58
+        },
+        {
+          "op": "replace",
+          "path": ["evidence_objects", 1, "extraction", "fragment_sha256"],
+          "value": "110c77de6c840ea15c0030c1ba903a9aab29f632d620be7c60efc1bca1277ba2"
+        }
+      ],
+      "expected_claim_reason": "insufficient_qualified_dependency_roots"
+    },
+    {
+      "case_id": "duplicate-primary-origin-does-not-inflate",
+      "mutations": [
+        {
+          "op": "replace",
+          "path": ["raw_artifacts", 1, "provenance", "origin_locator"],
+          "value": "fixture://independent-root-a"
+        }
+      ],
+      "expected_claim_reason": "insufficient_qualified_dependency_roots"
+    },
+    {
+      "case_id": "multiple-versions-of-one-root-do-not-inflate",
+      "mutations": [
+        {
+          "op": "replace",
+          "path": ["raw_artifacts", 1, "artifact_id"],
+          "value": "raw-a"
+        },
+        {
+          "op": "replace",
+          "path": ["raw_artifacts", 1, "artifact_version"],
+          "value": 2
+        },
+        {
+          "op": "replace",
+          "path": ["evidence_objects", 1, "raw_artifact_ref", "artifact_id"],
+          "value": "raw-a"
+        },
+        {
+          "op": "replace",
+          "path": ["evidence_objects", 1, "raw_artifact_ref", "artifact_version"],
+          "value": 2
+        },
+        {
+          "op": "replace",
+          "path": ["evidence_objects", 1, "declared_dependency_roots"],
+          "value": ["raw-a@2"]
+        }
+      ],
+      "expected_claim_reason": "insufficient_qualified_dependency_roots"
+    },
+    {
+      "case_id": "conflicting-artifact-version",
+      "mutations": [
+        {
+          "op": "replace",
+          "path": ["evidence_objects", 0, "raw_artifact_ref", "artifact_version"],
+          "value": 2
+        }
+      ],
+      "expected_error": "raw_artifact_ref_not_found"
+    },
+    {
+      "case_id": "unknown-field",
+      "mutations": [
+        {
+          "op": "add",
+          "path": ["claim_objects", 0, "execution_authorized"],
+          "value": true
+        }
+      ],
+      "expected_error": "schema_additional_property"
+    },
+    {
+      "case_id": "payload-path-traversal",
+      "mutations": [
+        {
+          "op": "replace",
+          "path": ["raw_artifacts", 0, "payload_path"],
+          "value": "../../knowledge/truth/truth.json"
+        }
+      ],
+      "expected_error": "schema_pattern"
+    },
+    {
+      "case_id": "duplicate-artifact-identity",
+      "mutations": [
+        {
+          "op": "replace",
+          "path": ["raw_artifacts", 1, "artifact_id"],
+          "value": "raw-a"
+        }
+      ],
+      "expected_error": "duplicate_raw_artifact"
+    },
+    {
+      "case_id": "future-provenance-timestamp",
+      "mutations": [
+        {
+          "op": "replace",
+          "path": ["raw_artifacts", 0, "provenance", "acquired_at"],
+          "value": "2099-01-01T00:00:00Z"
+        }
+      ],
+      "expected_error": "timestamp_after_evaluation"
+    },
+    {
+      "case_id": "stale-evidence",
+      "mutations": [
+        {
+          "op": "replace",
+          "path": ["raw_artifacts", 0, "provenance", "observed_at"],
+          "value": "2020-01-01T00:00:00Z"
+        }
+      ],
+      "expected_claim_reason": "stale_or_unknown_evidence"
+    },
+    {
+      "case_id": "unknown-evidence-time",
+      "mutations": [
+        {
+          "op": "replace",
+          "path": ["raw_artifacts", 0, "provenance", "observed_at"],
+          "value": null
+        }
+      ],
+      "expected_claim_reason": "stale_or_unknown_evidence"
+    },
+    {
+      "case_id": "invalid-calendar-timestamp",
+      "mutations": [
+        {
+          "op": "replace",
+          "path": ["raw_artifacts", 0, "provenance", "observed_at"],
+          "value": "2026-99-09T00:00:00Z"
+        }
+      ],
+      "expected_error": "invalid_timestamp"
+    },
+    {
+      "case_id": "fragment-hash-mismatch",
+      "mutations": [
+        {
+          "op": "replace",
+          "path": ["evidence_objects", 0, "extraction", "fragment_sha256"],
+          "value": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "expected_error": "evidence_fragment_hash_mismatch"
+    },
+    {
+      "case_id": "material-contradiction",
+      "mutations": [
+        {
+          "op": "replace",
+          "path": ["evidence_objects", 1, "relation"],
+          "value": "contradicts"
+        }
+      ],
+      "expected_claim_reason": "material_contradiction_present"
+    },
+    {
+      "case_id": "insufficient-roots-for-risk",
+      "mutations": [
+        {
+          "op": "replace",
+          "path": ["claim_objects", 0, "risk_class"],
+          "value": "R3"
+        }
+      ],
+      "expected_claim_reason": "insufficient_qualified_dependency_roots"
+    },
+    {
+      "case_id": "revision-parent-missing",
+      "mutations": [
+        {
+          "op": "replace",
+          "path": ["claim_objects", 0, "claim_version"],
+          "value": 2
+        },
+        {
+          "op": "replace",
+          "path": ["evidence_objects", 0, "claim_ref", "claim_version"],
+          "value": 2
+        },
+        {
+          "op": "replace",
+          "path": ["evidence_objects", 1, "claim_ref", "claim_version"],
+          "value": 2
+        }
+      ],
+      "expected_error": "claim_revision_parent_required"
+    }
+  ]
+}
