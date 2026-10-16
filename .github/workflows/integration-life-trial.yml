@@ -33,4 +33,4 @@ jobs:
       - name: Validate startup shell
         run: sh -n start_app.sh
       - name: Run bounded offline life trial
-        run: bash scripts/full_life_test.sh
+        run: bash scripts/cloud_check.sh
