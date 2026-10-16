@@ -19,6 +19,7 @@ def model(identifier, *, prompt="0", completion="0", request="0",
 
 
 valid = model("supplier/active-model:free", created=50)
+valid["links"] = {"details": "/api/v1/models/supplier/active-model-revision/endpoints"}
 stale = model("supplier/stale-model:free", created=100)
 paid = model("supplier/charged-model:free", completion="0.01")
 nonfree = model("supplier/paid-model", prompt="0")
@@ -27,12 +28,20 @@ del no_request_pricing["pricing"]["request"]
 nontext = model("supplier/image-model:free", text=False)
 too_small = model("supplier/small-model:free", max_tokens=1000)
 
-catalog = [paid, nonfree, no_request_pricing, nontext, too_small, valid, stale]
+catalog = [paid, nonfree, nontext, too_small, valid, stale]
 candidates = picker.eligible_models(catalog)
 assert candidates == ["supplier/stale-model:free", "supplier/active-model:free"], candidates
 assert picker.zero_price(valid["pricing"])
 assert not picker.zero_price(paid["pricing"])
-assert not picker.zero_price(no_request_pricing["pricing"])
+assert picker.zero_price(no_request_pricing["pricing"])
+assert picker.eligible_models([no_request_pricing]) == ["supplier/unspecified:free"]
+assert not picker.zero_price({"prompt": "0", "completion": "0", "request": "0.0001"})
+assert not picker.zero_price({"prompt": "0", "completion": "0", "internal_reasoning": "0.001"})
+assert not picker.zero_price({"prompt": "0"})
+assert picker.endpoint_url(valid) == picker.BASE + "/models/supplier/active-model-revision/endpoints"
+invalid_link = model("supplier/active-model:free")
+invalid_link["links"] = {"details": "https://evil.example/api/v1/models/anything/endpoints"}
+assert picker.endpoint_url(invalid_link) == picker.BASE + "/models/supplier/active-model:free/endpoints"
 assert not picker.zero_price({"prompt": "NaN", "completion": "0", "request": "0"})
 assert not picker.zero_price({"prompt": "-0.01", "completion": "0", "request": "0"})
 
@@ -44,10 +53,9 @@ def mock_fetch(url, key):
         return {"data": catalog}
     if "stale-model" in url:
         raise HTTPError(url, 404, "Not Found", {}, None)
-    if "active-model" in url:
+    if "active-model-revision" in url:
         return {"data": {"endpoints": [{"name": "free endpoint",
-                                        "pricing": {"prompt": "0", "completion": "0",
-                                                    "request": "0"}}]}}
+                                        "pricing": {"prompt": "0", "completion": "0"}}]}}
     raise AssertionError("No other model may be considered: " + url)
 
 with patch.object(picker, "fetch_json", mock_fetch):
@@ -79,5 +87,8 @@ assert not picker.endpoints_present({"data": {"endpoints": [{"pricing": {
     "prompt": "0", "completion": "0.12", "request": "0"}}]}})
 assert picker.endpoints_present({"data": {"endpoints": [{"name": "endpoint"}]}})
 assert not picker.endpoints_present({"unexpected": True})
+assert picker.endpoints_present({"data": {"endpoints": [{"pricing": {"prompt": "0", "completion": "0"}}]}})
+assert not picker.endpoints_present({"data": {"endpoints": [{"pricing": {
+    "prompt": "0", "completion": "0", "internal_reasoning": "1"}}]}})
 
 print("FREE MODEL CATALOG PREFLIGHT: PASS")
