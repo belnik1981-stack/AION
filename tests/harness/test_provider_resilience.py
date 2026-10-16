@@ -215,7 +215,7 @@ assert answer.startswith("[ОШИБКА:critic]") and len(requests) == 2, (answe
 answer, requests = verify_critic_retry([ProviderRateLimitError("HTTP 429")])
 assert "HTTP 429" in answer and len(requests) == 1, (answer, requests)
 
-answer, requests = verify_critic_retry([ProviderTruncatedError("length")], ceiling="1800",
+answer, requests = verify_critic_retry([ProviderTruncatedError("length"), ProviderTruncatedError("length")], ceiling="1800",
                                        retry="1")
 assert answer.startswith("[ОШИБКА:critic]"), answer
 assert requests[-1][0] == 1800 and len(requests) == 2, requests
