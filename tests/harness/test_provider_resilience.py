@@ -111,4 +111,67 @@ assert got == "Final answer" and seen[-1][0] == 600, (got, seen)
 got, seen = retry_case(["Done"])
 assert got == "Done" and len(seen) == 1 and seen[0][0] == 512
 
+
+# A dynamic free router can pick a model that rejects reasoning.effort="none".
+# If no effort is required, omit reasoning entirely rather than sending "none".
+class FakeResponse:
+    def __init__(self, result):
+        self.result = result
+    def __enter__(self):
+        return self
+    def __exit__(self, exc_type, exc, tb):
+        return False
+    def read(self):
+        return json.dumps(self.result).encode("utf-8")
+
+
+sent = []
+def capture(req, timeout):
+    payload = json.loads(req.data.decode("utf-8"))
+    sent.append(payload)
+    if payload.get("reasoning", {}).get("effort") == "none":
+        error = {"error": {"message": "SENSITIVE-PROMPT", "metadata": {"error_type": "invalid_request"}}}
+        raise HTTPError(req.full_url, 400, "Bad Request", {}, io.BytesIO(json.dumps(error).encode()))
+    return FakeResponse(response(content="OK"))
+
+with patch("providers.openai_compatible.urlopen", capture):
+    with patch.dict(os.environ, {"AION_REASONING_EFFORT": "none"}):
+        dynamic = OpenAICompatibleProvider(api_key="fixture", model="openrouter/free", free_only=True)
+        assert dynamic.health()["reasoning_sent"] is False
+        assert dynamic.ask("safe test", max_tokens=512) == "OK"
+        assert "reasoning" not in sent[-1], sent[-1]
+        named = OpenAICompatibleProvider(api_key="fixture", model="specific:free", free_only=True)
+        assert named.ask("safe test", max_tokens=512) == "OK"
+        assert "reasoning" not in sent[-1], sent[-1]
+    with patch.dict(os.environ, {"AION_REASONING_EFFORT": "low"}):
+        explicit = OpenAICompatibleProvider(api_key="fixture", model="specific:free", free_only=True)
+        assert explicit.health()["reasoning_sent"] is True
+        assert explicit.ask("safe test", max_tokens=512) == "OK"
+        assert sent[-1]["reasoning"]["effort"] == "low", sent[-1]
+
+
+def check_error400(error_type, expected):
+    sensitive = "SENSITIVE-PROVIDER-USER-REFERENCE"
+    payload = {"error": {"message": sensitive, "metadata": {
+        "error_type": error_type, "provider_name": sensitive, "raw": sensitive}}}
+    seen = []
+    def fail(req, timeout):
+        seen.append(True)
+        raise HTTPError(req.full_url, 400, "Bad Request", {}, io.BytesIO(json.dumps(payload).encode()))
+    with patch.dict(os.environ, {"AION_REASONING_EFFORT": "none"}):
+        with patch("providers.openai_compatible.urlopen", fail):
+            try:
+                provider().ask("test", max_tokens=512)
+            except ProviderError as exc:
+                assert expected in str(exc), str(exc)
+                assert sensitive not in str(exc)
+                assert str(error_type) not in str(exc) if expected == "(unknown)" else True
+            else:
+                raise AssertionError("HTTP400 must fail closed")
+    assert len(seen) == 1, "Never silently retry HTTP 400"
+
+
+check_error400("invalid_request", "(invalid_request)")
+check_error400("SENSITIVE-PROVIDER-USER-REFERENCE", "(unknown)")
+
 print("PROVIDER RESILIENCE REGRESSION: PASS")
