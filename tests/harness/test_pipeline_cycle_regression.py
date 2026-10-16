@@ -42,7 +42,7 @@ repeated, repeated_calls = execute_case(
 )
 assert repeated["status"] == "cycle_detected", repeated
 assert repeated["iterations_used"] == 2, repeated
-assert repeated["cycle"]["type"] == "direct_repeat", repeated
+assert repeated["cycle"]["type"] == "revisited_state", repeated
 assert repeated_calls["final_critic"] == 1, repeated_calls
 
 critic_cycle, _ = execute_case(
@@ -50,7 +50,7 @@ critic_cycle, _ = execute_case(
     [(False, "FAIL: unsupported conclusion"), (False, "FAIL: unsupported conclusion")],
 )
 assert critic_cycle["status"] == "cycle_detected", critic_cycle
-assert critic_cycle["cycle"]["type"] == "direct_repeat", critic_cycle
+assert critic_cycle["cycle"]["type"] == "revisited_state", critic_cycle
 
 bounded, bounded_calls = execute_case(
     ["first answer", "completely different second answer"],
