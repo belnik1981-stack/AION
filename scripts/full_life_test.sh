@@ -29,7 +29,19 @@ for test_file in \
   tests/harness/test_repository_hygiene.py \
   tests/harness/test_information_cleaning_trial.py \
   tests/harness/test_evidence_objects_v2.py \
-  tests/harness/test_evidence_bridge_runtime.py
+  tests/harness/test_evidence_bridge_runtime.py \
+  tests/harness/test_agents_runtime_adapter.py \
+  tests/harness/test_chat_ingestion.py \
+  tests/harness/test_verification_pipeline.py \
+  tests/harness/test_verification_integrity.py \
+  tests/harness/test_evidence_collector.py \
+  tests/harness/test_adaptive_learning.py \
+  tests/harness/test_trust_quarantine.py \
+  tests/harness/test_trust_policy_engine.py \
+  tests/harness/test_commercial_dependency_layer.py \
+  tests/harness/test_cycle_guard.py \
+  tests/harness/test_pipeline_cycle_regression.py \
+  tests/harness/test_server_safety.py
 do
   echo "[TEST] $test_file"
   python "$test_file"
