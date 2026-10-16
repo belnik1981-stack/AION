@@ -30,6 +30,7 @@ for test_file in \
   tests/harness/test_information_cleaning_trial.py \
   tests/harness/test_evidence_objects_v2.py \
   tests/harness/test_evidence_bridge_runtime.py \
+  tests/harness/test_multi_model_runtime_regression.py \
   tests/harness/test_agents_runtime_adapter.py \
   tests/harness/test_chat_ingestion.py \
   tests/harness/test_verification_pipeline.py \
