@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - integration-life-trial-v1-20261015
+      - integration/aion-pr1-pr5-validation-20261016
   pull_request:
     branches:
       - master
@@ -29,5 +30,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install runtime dependency
         run: python -m pip install --disable-pip-version-check PyYAML
+      - name: Validate startup shell
+        run: sh -n start_app.sh
       - name: Run bounded offline life trial
         run: bash scripts/full_life_test.sh
