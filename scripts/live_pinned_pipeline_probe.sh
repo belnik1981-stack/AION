@@ -9,23 +9,33 @@ export PYTHONPATH="$ROOT"
 export AION_PROVIDER=openai_compatible
 export AION_API_URL=https://openrouter.ai/api/v1
 export AION_FREE_ONLY=1
-export AION_MODEL="${AION_MODEL:-x-ai/grok-4-fast:free}"
 export AION_REASONING_EFFORT=none
 export AION_EXCLUDE_REASONING=1
 unset AION_MODELS
-# OpenRouter's Grok 4 Fast free model specifically documents the flag.
-# Never apply this setting to random free-router or undocumented providers.
-if [[ "$AION_MODEL" == "x-ai/grok-4-fast:free" ]]; then
-  export AION_DISABLE_REASONING=1
-else
-  export AION_DISABLE_REASONING=0
-fi
 if [[ -z "${AION_API_KEY:-}" ]]; then
   echo "[FAIL] AION_API_KEY missing in this Termux session; enter it privately." >&2
   exit 2
 fi
 
 PYTHON_BIN="${AION_PROBE_PYTHON:-python3}"
+# Before using any LLM tokens: discover an advertised-zero-priced concrete
+# model with a live provider endpoint. Never fall back to a paid model.
+# An existing AION_MODEL=...:free is treated as an explicit requested choice;
+# openrouter/free or unset model selects one matching free candidate.
+SELECTED_MODEL="$("$PYTHON_BIN" tools/select_free_openrouter_model.py)" || {
+  echo "[FAIL] No live requests were made: free model preflight failed." >&2
+  exit 2
+}
+export AION_MODEL="$SELECTED_MODEL"
+# Only the documented Grok model may receive reasoning.enabled=false.
+# Other chosen models keep provider defaults; avoiding auto-router randomness
+# does not ensure they can finish within a particular output budget.
+if [[ "$AION_MODEL" == "x-ai/grok-4-fast:free" ]]; then
+  export AION_DISABLE_REASONING=1
+else
+  export AION_DISABLE_REASONING=0
+fi
+echo "[PREFLIGHT] Advertised-free model and endpoint selected: $AION_MODEL"
 "$PYTHON_BIN" - <<'PY'
 import hashlib
 import os
