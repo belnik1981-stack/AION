@@ -13,7 +13,7 @@ import os
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
-from providers.base import BaseProvider, ProviderError
+from providers.base import BaseProvider, ProviderError, ProviderTruncatedError, ProviderRateLimitError
 
 
 _REASONING_EFFORTS = {"max", "xhigh", "high", "medium", "low", "minimal", "none"}
@@ -89,7 +89,7 @@ class OpenAICompatibleProvider(BaseProvider):
         finish_reason = str(choice.get("finish_reason") or "").strip().lower()
         native_finish_reason = str(choice.get("native_finish_reason") or "").strip().lower()
         if finish_reason in _TRUNCATION_REASONS or native_finish_reason in _TRUNCATION_REASONS:
-            raise ProviderError(
+            raise ProviderTruncatedError(
                 "Ответ модели обрезан по лимиту вывода и не принят как завершённый: "
                 f"finish_reason={choice.get('finish_reason')!r}, "
                 f"native_finish_reason={choice.get('native_finish_reason')!r}. "
@@ -129,6 +129,8 @@ class OpenAICompatibleProvider(BaseProvider):
             "free_only": self.free_only,
             "reasoning_effort": self.reasoning_effort or "provider_default",
             "policy": policy,
+            "connection_verified": False,
+            "note": "Конфигурация проверена локально; доступность модели проверяется только реальным запросом.",
         }
 
     def ask(self, prompt: str, max_tokens: int | None = None) -> str:
@@ -195,8 +197,23 @@ class OpenAICompatibleProvider(BaseProvider):
             return self._extract_content(data)
 
         except HTTPError as e:
-            err_body = e.read().decode("utf-8", errors="ignore")
-            raise ProviderError(f"HTTP {e.code}: {err_body}") from e
+            # Do not log the upstream response: it can contain account IDs,
+            # request excerpts or provider-specific personal metadata.
+            if e.code == 429:
+                raise ProviderRateLimitError(
+                    "HTTP 429: бесплатный провайдер ограничил частоту запросов. "
+                    "Автоматические повторы отключены; повторите позднее или "
+                    "выберите другую доступную бесплатную модель (:free)."
+                ) from e
+            if e.code in (401, 403):
+                raise ProviderError(
+                    f"HTTP {e.code}: проверьте ключ и доступ к выбранной модели. "
+                    "Ответ провайдера скрыт во избежание утечки данных."
+                ) from e
+            raise ProviderError(
+                f"HTTP {e.code}: запрос отклонён провайдером. "
+                "Тело ответа скрыто во избежание утечки данных."
+            ) from e
         except ProviderError:
             raise
         except Exception as e:
