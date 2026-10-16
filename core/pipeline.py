@@ -19,6 +19,7 @@ from core.truth import get_execution_limits
 from core.agents import planner, analyst, critic, synthesizer, final_critic_check
 from core.evidence_bridge import EvidenceBridgeError, format_evidence_for_prompt, load_analysis_evidence
 from core.llm import ask_llm
+from providers.base import ProviderTruncatedError
 from core.cycle_guard import CycleGuard
 from memory.store import add_episodic_event
 
@@ -89,7 +90,21 @@ def _raw_answer(task: str, model: str) -> str:
         f"ЗАДАЧА:\n{task}"
     )
     try:
-        return ask_llm(prompt, max_tokens=int(os.getenv("AION_ANALYST_TOKENS", "420")), model=model).strip()
+        ceiling = int(os.getenv("AION_ROLE_TOKEN_CEILING", "1800"))
+        if not 128 <= ceiling <= 8192:
+            raise ValueError("AION_ROLE_TOKEN_CEILING вне диапазона 128..8192")
+        requested = int(os.getenv("AION_ANALYST_TOKENS", "900"))
+        if requested <= 0:
+            raise ValueError("AION_ANALYST_TOKENS должен быть положительным")
+        budget = min(max(128, requested), ceiling)
+        try:
+            return ask_llm(prompt, max_tokens=budget, model=model).strip()
+        except ProviderTruncatedError:
+            enabled = os.getenv("AION_TRUNCATION_RETRY", "1").strip().lower() in ("1", "true", "yes", "on")
+            retry_budget = min(ceiling, max(budget + 256, budget * 2))
+            if not enabled or retry_budget <= budget:
+                raise
+            return ask_llm(prompt, max_tokens=retry_budget, model=model).strip()
     except Exception as exc:
         return f"[ОШИБКА:raw] {exc}"
 
