@@ -12,21 +12,30 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-BASE = "https://openrouter.ai/api/v1"
+ORIGIN = "https://openrouter.ai"
+BASE = ORIGIN + "/api/v1"
 MODEL_ID = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*/[a-zA-Z0-9][a-zA-Z0-9._:-]{0,100}:free$")
+DETAIL_PATH = re.compile(r"^/api/v1/models/[a-zA-Z0-9][a-zA-Z0-9._-]*/[a-zA-Z0-9][a-zA-Z0-9._:-]{0,125}/endpoints$")
 MIN_COMPLETION = 3200
 MAX_CANDIDATES = 16
 
 
 def zero_price(pricing):
-    """Require all three relevant text-request prices to be explicitly zero."""
+    """Require explicit zero token rates; optional charges must be zero if present.
+
+    OpenRouter omits uncharged optional pricing fields, including "request",
+    on many real :free entries. Their absence is not evidence of a charge.
+    """
     if not isinstance(pricing, dict):
         return False
-    for key in ("prompt", "completion", "request"):
+    if "prompt" not in pricing or "completion" not in pricing:
+        return False
+    for key in ("prompt", "completion", "request", "internal_reasoning"):
         if key not in pricing:
-            return False
+            continue
         try:
-            if not Decimal(str(pricing[key])).is_finite() or Decimal(str(pricing[key])) != 0:
+            price = Decimal(str(pricing[key]))
+            if not price.is_finite() or price != 0:
                 return False
         except (InvalidOperation, TypeError, ValueError):
             return False
@@ -67,6 +76,21 @@ def eligible_models(models):
     return [item[3] for item in sorted(result)]
 
 
+def endpoint_url(model):
+    """Use a verified, catalog-provided endpoint path (often the canonical slug).
+
+    Never accept an absolute URL or arbitrary path from provider metadata.
+    """
+    links = model.get("links")
+    details = links.get("details") if isinstance(links, dict) else None
+    if isinstance(details, str) and DETAIL_PATH.fullmatch(details):
+        return ORIGIN + details
+    model_id = model["id"]
+    author, slug = model_id.split("/", 1)
+    return (BASE + "/models/" + quote(author, safe="") + "/" +
+            quote(slug, safe=":") + "/endpoints")
+
+
 def endpoints_present(payload):
     data = payload.get("data") if isinstance(payload, dict) else None
     endpoints = data.get("endpoints") if isinstance(data, dict) else None
@@ -100,6 +124,8 @@ def catalog_selection(key, requested=None):
     if not isinstance(models, list):
         raise ValueError("OpenRouter model catalog has unexpected format")
     candidates = eligible_models(models)
+    model_by_id = {item.get("id"): item for item in models
+                   if isinstance(item, dict) and isinstance(item.get("id"), str)}
     if requested and requested != "openrouter/free":
         if requested not in candidates:
             raise ValueError(
@@ -111,8 +137,7 @@ def catalog_selection(key, requested=None):
         raise ValueError("No zero-priced eligible text model found in current catalog")
 
     for candidate in candidates[:MAX_CANDIDATES]:
-        author, slug = candidate.split("/", 1)
-        url = BASE + "/models/" + quote(author, safe="") + "/" + quote(slug, safe=":") + "/endpoints"
+        url = endpoint_url(model_by_id[candidate])
         try:
             result = fetch_json(url, key)
         except HTTPError as exc:
