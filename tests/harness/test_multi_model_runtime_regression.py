@@ -66,6 +66,7 @@ assert critic_failure["stage"] == "critic", critic_failure
 cycle, _, _ = run_case(
     lambda m: "raw evidence " + m,
     lambda task, answer, model=None: (False, "FAIL: evidence missing"),
+    role_fn=lambda role, model: "Same final answer" if role == "synthesizer" else role + " ok",
 )
 assert cycle["status"] == "cycle_detected", cycle
 assert cycle["rotations_used"] <= 2, cycle
