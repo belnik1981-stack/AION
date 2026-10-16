@@ -220,4 +220,72 @@ answer, requests = verify_critic_retry([ProviderTruncatedError("length"), Provid
 assert answer.startswith("[ОШИБКА:critic]"), answer
 assert requests[-1][0] == 1800 and len(requests) == 2, requests
 
+
+# When openrouter/free changes upstream models, log only safely filtered
+# model identity and numeric token usage, never arbitrary response text.
+truncated_payload = response(content="private sample", finish_reason="length")
+truncated_payload["model"] = "x-ai/grok-4-fast:free"
+truncated_payload["usage"] = {
+    "completion_tokens": 3200,
+    "completion_tokens_details": {"reasoning_tokens": 3100},
+}
+try:
+    OpenAICompatibleProvider._extract_content(truncated_payload, requested_max_tokens=3200)
+except ProviderTruncatedError as exc:
+    msg = str(exc)
+    assert "response_model=x-ai/grok-4-fast:free" in msg, msg
+    assert "budget=3200" in msg and "reasoning_tokens=3100" in msg, msg
+    assert "private sample" not in msg
+else:
+    raise AssertionError("truncation must be rejected")
+
+truncated_payload["model"] = "SENSITIVE user_id=123 >"
+try:
+    OpenAICompatibleProvider._extract_content(truncated_payload, requested_max_tokens=3200)
+except ProviderTruncatedError as exc:
+    msg = str(exc)
+    assert "response_model=unknown" in msg and "user_id" not in msg, msg
+else:
+    raise AssertionError("truncation must be rejected")
+
+# Explicit reasoning.disable is allowed only for an externally confirmed model.
+with patch.dict(os.environ, {
+    "AION_REASONING_EFFORT": "none",
+    "AION_DISABLE_REASONING": "1",
+}):
+    with patch("providers.openai_compatible.urlopen", capture):
+        fixed = OpenAICompatibleProvider(
+            api_key="synthetic", model="x-ai/grok-4-fast:free", free_only=True
+        )
+        assert fixed.health()["status"] == "ok", fixed.health()
+        assert fixed.health()["reasoning_disabled_requested"] is True
+        assert fixed.ask("2+2", max_tokens=512) == "OK"
+        assert sent[-1]["model"] == "x-ai/grok-4-fast:free", sent[-1]
+        assert sent[-1]["reasoning"] == {"enabled": False}, sent[-1]
+
+        dynamic = OpenAICompatibleProvider(
+            api_key="synthetic", model="openrouter/free", free_only=True
+        )
+        assert dynamic.health()["status"] == "blocked_model"
+        try:
+            dynamic.ask("2+2", max_tokens=512)
+        except ProviderError as exc:
+            assert "AION_DISABLE_REASONING" in str(exc)
+        else:
+            raise AssertionError("Unverified free router must not be force-disabled")
+
+        different = OpenAICompatibleProvider(
+            api_key="synthetic", model="cohere/north-mini-code:free", free_only=True
+        )
+        assert different.health()["status"] == "blocked_model"
+
+with patch.dict(os.environ, {
+    "AION_REASONING_EFFORT": "high",
+    "AION_DISABLE_REASONING": "1",
+}):
+    incompatible = OpenAICompatibleProvider(
+        api_key="synthetic", model="x-ai/grok-4-fast:free", free_only=True
+    )
+    assert incompatible.health()["status"] == "blocked_model"
+
 print("PROVIDER RESILIENCE REGRESSION: PASS")
