@@ -36,6 +36,8 @@ jobs:
         run: bash -n scripts/live_probe.sh
       - name: Validate Critic live probe script syntax
         run: bash -n scripts/live_critic_probe.sh
+      - name: Validate pinned model catalog preflight offline
+        run: PYTHONPATH=. python tests/harness/test_free_model_catalog_preflight.py
       - name: Validate pinned-model smoke script
         run: bash -n scripts/live_pinned_pipeline_probe.sh
       - name: Run bounded offline life trial
