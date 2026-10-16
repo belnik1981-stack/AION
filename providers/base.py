@@ -16,7 +16,8 @@ class BaseProvider:
 
     name = "base"
 
-    def ask(self, prompt: str) -> str:
+    def ask(self, prompt: str, max_tokens: int | None = None) -> str:
+        """Выполнить запрос. max_tokens — опциональный лимит конкретного вызова."""
         raise NotImplementedError(
             "Provider должен реализовать метод ask()"
         )
