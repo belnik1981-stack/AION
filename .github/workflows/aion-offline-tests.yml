@@ -83,6 +83,9 @@ jobs:
       - name: Verify bounded live-driver regression offline
         run: python tests/harness/test_live_free_pipeline_trial.py
 
+      - name: Verify independent two-model trial without network
+        run: python tests/harness/test_multi_model_runtime_regression.py && python tests/harness/test_live_free_multi_model_trial.py
+
       - name: Validate live probe shell
         run: bash -n scripts/live_probe.sh
 

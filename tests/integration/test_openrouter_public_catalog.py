@@ -17,6 +17,7 @@ for model_id in candidates:
     assert model_id.endswith(":free"), model_id
     assert model_id in by_id and zero_price(by_id[model_id]["pricing"]), model_id
 
+assert len({model_id.split("/", 1)[0] for model_id in candidates}) >= 2, "Two different free-model authors required"
 print("[PASS] REAL OPENROUTER PUBLIC CATALOG CONTRACT")
 print("[CATALOG] records:", len(models), "eligible free text models:", len(candidates))
 print("[CATALOG] first declared-free model:", candidates[0])
