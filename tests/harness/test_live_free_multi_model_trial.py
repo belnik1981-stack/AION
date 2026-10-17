@@ -104,6 +104,13 @@ def run_driver(status="ok", *, same_raw=False):
             "verification_scope": "llm_review_only",
             "final_answer": "The sources disagree; this is not proof" if status == "ok" else None,
             "rotations_used": 1,
+            "rounds": [{
+                "accepted": status == "ok",
+                "role_assignment": {
+                    "planner": ONE, "analyst": TWO, "critic": ONE,
+                    "synthesizer": TWO, "verifier": ONE,
+                },
+            }],
             "stage": "verifier" if status != "ok" else None,
         }
     with patch.dict(os.environ, {
@@ -126,6 +133,7 @@ assert status == 0 and seen == [
     ("preflight", ONE), ("preflight", TWO), ("pipeline", (ONE, TWO), "1")
 ], (status, seen, log)
 assert "[PASS] MULTI MODEL PIPELINE" in log and "[TRUTH VERIFIED] False" in log
+assert "[ROLES]" in log and "planner=" in log and "verifier=" in log
 assert "[PASS] Truth unchanged" in log
 
 status, seen, log = run_driver(same_raw=True)
