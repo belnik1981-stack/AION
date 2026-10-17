@@ -48,11 +48,11 @@ assert selected == [ONE, THREE], selected
 assert calls == [TWO, ONE, THREE], calls
 
 calls.clear()
-def 429_probe(mid):
+def rate_limit_probe(mid):
     calls.append(mid)
     raise ProviderRateLimitError("HTTP 429")
 with patch("sys.stdout", new_callable=io.StringIO):
-    selected = multi._find_two_responsive(FREE, probe=429_probe)
+    selected = multi._find_two_responsive(FREE, probe=rate_limit_probe)
 assert selected is None and calls == [TWO], calls
 
 calls.clear()
