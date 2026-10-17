@@ -2,7 +2,7 @@
 import os
 from unittest.mock import patch
 from core import pipeline
-from providers.base import ProviderTruncatedError
+from providers.base import ProviderTruncatedError, ProviderRateLimitError
 
 
 def run_case(answer_fn, final_check, role_fn=None, max_iterations=3):
@@ -88,5 +88,51 @@ raw_retry, calls, _ = run_case(
 assert raw_retry["status"] == "ok", raw_retry
 assert raw_retry["independent_model_count"] == 2, raw_retry
 assert calls[:3] == ["model-a:free", "model-a:free", "model-b:free"], calls
+
+
+# Never downgrade a user-requested comparison to a single model after
+# normalizing duplicates or dynamic openrouter/free model names.
+for bad_models in (
+    "model-a:free,model-a:free",
+    "model-a:free,model-a:free,model-b:free",
+    "openrouter/free,model-b:free",
+    "model-a:free",
+    "model-a:free,,model-b:free",
+):
+    with patch.dict(os.environ, {"AION_MODELS": bad_models, "AION_EVIDENCE_BUNDLE": ""}):
+        with patch.object(pipeline, "planner", side_effect=AssertionError("Must not run LLM")):
+            rejected = pipeline.run_pipeline("Compare independently.")
+    assert rejected["status"] == "error" and rejected["stage"] == "model_selection", (bad_models, rejected)
+
+# Distinct model IDs are not external evidence of truth, even if responses
+# appear the same or the mocked verifier says OK.
+same, calls, _ = run_case(
+    lambda model: "Same unsupported claim",
+    lambda task, answer, model=None: (True, "OK"),
+)
+assert same["status"] == "ok"
+assert same["truth_verified"] is False and same["verification_scope"] == "llm_review_only"
+assert same["independent_initial_outputs"] == 2 and same["model_ids_distinct"] is True
+assert calls[:2] == ["model-a:free", "model-b:free"]
+
+# If one model returns HTTP 429, do not invoke the next model in the raw stage.
+rate_limited, calls, _ = run_case(
+    lambda model: (_ for _ in ()).throw(ProviderRateLimitError("HTTP 429"))
+        if model == "model-a:free" else "should never be requested",
+    lambda task, answer, model=None: (True, "OK"),
+)
+assert rate_limited["status"] == "error"
+assert rate_limited["stage"] == "raw_multi_model"
+assert calls == ["model-a:free"], calls
+
+# One verification rotation can be explicitly requested for a bounded live
+# smoke without altering the immutable Truth iteration ceiling.
+with patch.dict(os.environ, {"AION_MULTI_TEST_ROUNDS": "1"}):
+    one_round, calls, _ = run_case(
+        lambda model: "Response from " + model,
+        lambda task, answer, model=None: (False, "FAIL: evidence not independently verified"),
+    )
+assert one_round["status"] == "rotations_exhausted", one_round
+assert one_round["rotations_used"] == 1, one_round
 
 print("MULTI MODEL RUNTIME REGRESSION: PASS")
