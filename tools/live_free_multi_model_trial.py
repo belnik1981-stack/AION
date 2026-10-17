@@ -3,15 +3,12 @@
 Reuse the proven single-model readiness probe and catalog selector. Never
 interpret a model's verdict or agreement as independently verified truth.
 """
-import hashlib
 import os
 import sys
-from pathlib import Path
 from urllib.error import HTTPError, URLError
 
 from core.pipeline import _raw_answer_attempt, run_pipeline
-from providers.base import ProviderError, ProviderHTTPError, ProviderRateLimitError, ProviderTruncatedError
-from tools.live_free_pipeline_trial import _probe, _hash_truth
+from tools.live_free_pipeline_trial import _hash_truth
 from tools.select_free_openrouter_model import catalog_candidates
 
 
@@ -47,42 +44,6 @@ def _candidate_models(catalog, requested=None):
     known_success = "dots-studio/dots-3-note-preview:free"
     ordering = [known_success] + [m for m in catalog if m != known_success] if known_success in catalog else list(catalog)
     return ordering[:MAX_PREFLIGHT_CANDIDATES]
-
-
-def _find_two_responsive(candidates, explicit=False, probe=None):
-    probe = probe or _probe
-    selected = []
-    for mid in candidates:
-        if len(selected) == 2:
-            break
-        if _author(mid) in {_author(other) for other in selected}:
-            continue
-        print("[PREFLIGHT]", mid, flush=True)
-        try:
-            probe(mid)
-        except ProviderRateLimitError:
-            print("[FAIL] HTTP 429: stop without additional model requests.", flush=True)
-            return None
-        except ProviderTruncatedError:
-            print("[PREFLIGHT] Incomplete response rejected.", flush=True)
-            if explicit:
-                return None
-            continue
-        except ProviderHTTPError as exc:
-            print("[PREFLIGHT] Provider HTTP", exc.status_code, flush=True)
-            if explicit or exc.status_code not in PREFLIGHT_RECOVERABLE:
-                return None
-            continue
-        except ProviderError:
-            print("[FAIL] Provider rejected preflight; no further requests.", flush=True)
-            return None
-        selected.append(mid)
-        print("[PASS] Model returned complete preflight:", mid, flush=True)
-
-    if len(selected) != 2:
-        print("[FAIL] Two distinct responsive free models not established.", flush=True)
-        return None
-    return selected
 
 
 def _collect_two_raw_answers(candidates, explicit=False, attempt=None):
