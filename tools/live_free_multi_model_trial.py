@@ -154,9 +154,29 @@ def execute():
         print("[RAW TEXTS IDENTICAL]", raw[two[0]].strip() == raw[two[1]].strip(), flush=True)
         print("[VERIFICATION]", result.get("verification_scope"), flush=True)
         print("[TRUTH VERIFIED]", result.get("truth_verified"), flush=True)
+        rounds = result.get("rounds")
+        accepted_round = (
+            isinstance(rounds, list) and len(rounds) == 1
+            and result.get("rotations_used") == 1
+            and isinstance(rounds[0], dict)
+            and rounds[0].get("accepted") is True
+        )
+        assignments = rounds[0].get("role_assignment") if accepted_round else None
+        expected_roles = {"planner", "analyst", "critic", "synthesizer", "verifier"}
+        valid_roles = (
+            isinstance(assignments, dict)
+            and set(assignments) == expected_roles
+            and set(assignments.values()) == set(two)
+        )
+        if valid_roles:
+            print("[ROLES]", ", ".join(
+                role + "=" + assignments[role]
+                for role in ("planner", "analyst", "critic", "synthesizer", "verifier")
+            ), flush=True)
         if (result.get("status") != "ok"
                 or not isinstance(result.get("final_answer"), str)
                 or not result["final_answer"].strip()
+                or not accepted_round or not valid_roles
                 or result.get("truth_verified") is not False
                 or result.get("verification_scope") != "llm_review_only"):
             print("[FAIL] MULTI MODEL PIPELINE", flush=True)
