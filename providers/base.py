@@ -11,6 +11,14 @@ class ProviderError(Exception):
     pass
 
 
+class ProviderHTTPError(ProviderError):
+    """Safe HTTP failure with a machine-readable status for bounded routing."""
+
+    def __init__(self, status_code: int, detail: str):
+        super().__init__(detail)
+        self.status_code = status_code
+
+
 class ProviderTruncatedError(ProviderError):
     """The model hit its output limit; partial output must not be trusted."""
     pass

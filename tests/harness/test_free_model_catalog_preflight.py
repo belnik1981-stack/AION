@@ -4,6 +4,7 @@ No network. This intentionally models free variants whose links.details can
 return 404/empty, so the launcher must not depend on the endpoints API.
 """
 from datetime import date
+from urllib.error import HTTPError
 from tools import select_free_openrouter_model as picker
 
 
@@ -81,14 +82,14 @@ calls = []
 def mock_fetch(url, key):
     calls.append(url)
     assert key == "synthetic-test-key"
-    if url == picker.BASE + "/models":
+    if url == picker.BASE + "/models/user":
         return {"data": valid_free}
     raise AssertionError("Endpoint lookup must never determine model availability: " + url)
 
 
 selected = picker.catalog_selection("synthetic-test-key", fetcher=mock_fetch)
 assert selected == "apodex/apodex-1.1-mini:free", selected
-assert calls == [picker.BASE + "/models"], calls
+assert calls == [picker.BASE + "/models/user"], calls
 
 calls.clear()
 selected = picker.catalog_selection(
@@ -96,7 +97,33 @@ selected = picker.catalog_selection(
     fetcher=mock_fetch
 )
 assert selected == "vendor/mandatory:free"
-assert calls == [picker.BASE + "/models"], calls
+assert calls == [picker.BASE + "/models/user"], calls
+
+# Authenticated catalog reflects model restrictions. Only unsupported route
+# (HTTP 404) permits a fallback to the global public model catalog.
+fallback_calls = []
+def fallback_fetch(url, key):
+    fallback_calls.append(url)
+    if url == picker.BASE + "/models/user":
+        raise HTTPError(url, 404, "not available", {}, None)
+    if url == picker.BASE + "/models":
+        return {"data": valid_free}
+    raise AssertionError(url)
+assert picker.catalog_selection("synthetic-test-key", fetcher=fallback_fetch) == "apodex/apodex-1.1-mini:free"
+assert fallback_calls == [picker.BASE + "/models/user", picker.BASE + "/models"]
+
+for code in (401, 403, 429):
+    calls_for_failure = []
+    def denied(url, key):
+        calls_for_failure.append(url)
+        raise HTTPError(url, code, "auth/limit error", {}, None)
+    try:
+        picker.catalog_selection("synthetic-test-key", fetcher=denied)
+    except HTTPError as exc:
+        assert exc.code == code
+    else:
+        raise AssertionError("Account errors must not select a public model")
+    assert calls_for_failure == [picker.BASE + "/models/user"], calls_for_failure
 
 for wrong in ("vendor/paid", "vendor/missing:free", "openai/gpt-6-luna"):
     try:

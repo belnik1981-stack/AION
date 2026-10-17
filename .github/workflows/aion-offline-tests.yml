@@ -80,6 +80,9 @@ jobs:
       - name: Verify live free model catalog guard without network
         run: python tests/harness/test_free_model_catalog_preflight.py
 
+      - name: Verify bounded live-driver regression offline
+        run: python tests/harness/test_live_free_pipeline_trial.py
+
       - name: Validate live probe shell
         run: bash -n scripts/live_probe.sh
 
