@@ -19,7 +19,7 @@ from core.truth import get_execution_limits
 from core.agents import planner, analyst, critic, synthesizer, final_critic_check
 from core.evidence_bridge import EvidenceBridgeError, format_evidence_for_prompt, load_analysis_evidence
 from core.llm import ask_llm
-from providers.base import ProviderTruncatedError, ProviderRateLimitError
+from providers.base import ProviderError, ProviderHTTPError, ProviderTruncatedError, ProviderRateLimitError
 from core.cycle_guard import CycleGuard
 from memory.store import add_episodic_event
 
@@ -83,7 +83,13 @@ def _task_with_evidence(task: str, evidence_text: str) -> str:
     )
 
 
-def _raw_answer(task: str, model: str) -> str:
+def _raw_answer_attempt(task: str, model: str) -> dict:
+    """One independent initial answer; structured, sanitized failure category.
+
+    A short 2+2 response cannot prove a model can complete the actual task.
+    This function is shared by multi-model testing and the normal pipeline,
+    preserving AION's bounded retry and no-retry-on-429 behavior.
+    """
     prompt = (
         "Ответь на задачу независимо. Не учитывай ответы других моделей, потому что их ещё нет. "
         "Отделяй установленные факты от предположений и явно отмечай существенную неопределённость.\n\n"
@@ -92,23 +98,50 @@ def _raw_answer(task: str, model: str) -> str:
     try:
         ceiling = int(os.getenv("AION_ROLE_TOKEN_CEILING", "4096"))
         if not 128 <= ceiling <= 8192:
-            raise ValueError("AION_ROLE_TOKEN_CEILING вне диапазона 128..8192")
+            raise ValueError("Invalid AION_ROLE_TOKEN_CEILING")
         requested = int(os.getenv("AION_ANALYST_TOKENS", "900"))
         if requested <= 0:
-            raise ValueError("AION_ANALYST_TOKENS должен быть положительным")
+            raise ValueError("Invalid AION_ANALYST_TOKENS")
         budget = min(max(128, requested), ceiling)
         try:
-            return ask_llm(prompt, max_tokens=budget, model=model).strip()
+            content = ask_llm(prompt, max_tokens=budget, model=model)
         except ProviderTruncatedError:
-            enabled = os.getenv("AION_TRUNCATION_RETRY", "1").strip().lower() in ("1", "true", "yes", "on")
-            retry_budget = min(ceiling, max(budget + 256, budget * 2))
-            if not enabled or retry_budget <= budget:
+            enabled = os.getenv("AION_TRUNCATION_RETRY", "1").strip().lower() in (
+                "1", "true", "yes", "on"
+            )
+            next_budget = min(ceiling, max(budget + 256, budget * 2))
+            if not enabled or next_budget <= budget:
                 raise
-            return ask_llm(prompt, max_tokens=retry_budget, model=model).strip()
+            content = ask_llm(prompt, max_tokens=next_budget, model=model)
+        if not isinstance(content, str) or not content.strip():
+            return {"status": "invalid_response"}
+        return {"status": "ok", "answer": content.strip()}
     except ProviderRateLimitError:
+        return {"status": "rate_limited", "http_status": 429}
+    except ProviderTruncatedError:
+        return {"status": "truncated"}
+    except ProviderHTTPError as exc:
+        return {"status": "http_error", "http_status": exc.status_code}
+    except ProviderError:
+        return {"status": "provider_error"}
+    except (ValueError, TypeError):
+        return {"status": "invalid_configuration"}
+    except Exception:
+        # Untrusted exception messages may contain prompts, request metadata
+        # or private account data. Do not serialize them into the report.
+        return {"status": "unexpected_error"}
+
+
+def _raw_answer(task: str, model: str) -> str:
+    """Legacy string result, retained for existing AION callers/tests."""
+    result = _raw_answer_attempt(task, model)
+    if result["status"] == "ok":
+        return result["answer"]
+    if result["status"] == "rate_limited":
         return "[ОШИБКА:raw] HTTP 429 rate_limited"
-    except Exception as exc:
-        return f"[ОШИБКА:raw] {exc}"
+    if result["status"] == "http_error":
+        return f"[ОШИБКА:raw] HTTP {result['http_status']}"
+    return "[ОШИБКА:raw] " + result["status"]
 
 
 def _legacy_pipeline(task: str, task_type: str, max_iterations: int, evidence_meta: dict) -> dict:
@@ -181,29 +214,57 @@ def _legacy_pipeline(task: str, task_type: str, max_iterations: int, evidence_me
     }
 
 
-def _multi_model_pipeline(task: str, task_type: str, models: list[str], max_iterations: int, evidence_meta: dict) -> dict:
+def _multi_model_pipeline(
+    task: str, task_type: str, models: list[str], max_iterations: int,
+    evidence_meta: dict, initial_raw_answers: dict | None = None,
+) -> dict:
     raw_answers = {}
-    for model in models:
-        raw_answers[model] = _raw_answer(task, model)
-        if raw_answers[model].startswith("[ОШИБКА:raw] HTTP 429"):
+    raw_diagnostics = {}
+    if initial_raw_answers is not None:
+        # Reject incomplete/foreign/injected records before role execution.
+        if (not isinstance(initial_raw_answers, dict)
+                or set(initial_raw_answers) != set(models)
+                or any(not isinstance(initial_raw_answers[m], str)
+                       or not initial_raw_answers[m].strip()
+                       or initial_raw_answers[m].startswith("[ОШИБКА")
+                       for m in models)):
             return {
-                "status": "error",
-                "stage": "raw_multi_model",
-                "detail": "HTTP 429: испытание остановлено без запросов к следующей модели.",
-                "models": models,
-                "raw_answers": raw_answers,
-                "evidence": evidence_meta,
+                "status": "error", "stage": "raw_multi_model",
+                "detail": "Предварительные ответы не соответствуют выбранным моделям.",
+                "raw_diagnostics": {}, "models": models,
                 "truth_verified": False,
             }
+        raw_answers = {m: initial_raw_answers[m] for m in models}
+        raw_diagnostics = {m: {"status": "ok", "reused": True} for m in models}
+    else:
+        for model in models:
+            attempt = _raw_answer_attempt(task, model)
+            raw_diagnostics[model] = {
+                k: v for k, v in attempt.items() if k != "answer"
+            }
+            if attempt["status"] == "ok":
+                raw_answers[model] = attempt["answer"]
+            else:
+                raw_answers[model] = "[ОШИБКА:raw] " + attempt["status"]
+            if attempt["status"] == "rate_limited":
+                return {
+                    "status": "error", "stage": "raw_multi_model",
+                    "detail": "HTTP 429: сбор исходных ответов остановлен без дальнейших запросов.",
+                    "models": models, "raw_answers": raw_answers,
+                    "raw_diagnostics": raw_diagnostics,
+                    "evidence": evidence_meta, "truth_verified": False,
+                }
     usable = {m: a for m, a in raw_answers.items() if not a.startswith("[ОШИБКА")}
     if len(usable) < 2:
         return {
             "status": "error",
             "stage": "raw_multi_model",
-            "detail": "Для сравнительного режима нужны успешные ответы минимум двух разных моделей.",
+            "detail": "Исходный ответ отсутствует или не завершён; подробности в raw_diagnostics.",
             "models": models,
             "raw_answers": raw_answers,
+            "raw_diagnostics": raw_diagnostics,
             "evidence": evidence_meta,
+            "truth_verified": False,
         }
 
     raw_bundle = "\n\n".join(f"MODEL {m}:\n{a}" for m, a in usable.items())
@@ -295,6 +356,7 @@ def _multi_model_pipeline(task: str, task_type: str, models: list[str], max_iter
         "verification_scope": "llm_review_only",
         "evidence": evidence_meta,
         "raw_answers": raw_answers,
+        "raw_diagnostics": raw_diagnostics,
         "rotations_planned": rotations,
         "rotations_used": len(round_results),
         "cycle": cycle_info,
@@ -305,7 +367,7 @@ def _multi_model_pipeline(task: str, task_type: str, models: list[str], max_iter
     }
 
 
-def run_pipeline(task: str) -> dict:
+def run_pipeline(task: str, *, initial_raw_answers: dict | None = None) -> dict:
     limits = get_execution_limits()
     max_iterations = int(limits.get("max_iterations", 2))
     task_type = router(task)
@@ -336,5 +398,14 @@ def run_pipeline(task: str) -> dict:
     effective_task = _task_with_evidence(task, evidence_text)
 
     if len(models) >= 2:
-        return _multi_model_pipeline(effective_task, task_type, models, max_iterations, evidence_meta)
+        return _multi_model_pipeline(
+            effective_task, task_type, models, max_iterations, evidence_meta,
+            initial_raw_answers=initial_raw_answers,
+        )
+    if initial_raw_answers is not None:
+        return {
+            "status": "error", "stage": "model_selection",
+            "detail": "Предварительные многомодельные ответы не допускаются в одномодельном режиме.",
+            "truth_verified": False,
+        }
     return _legacy_pipeline(effective_task, task_type, max_iterations, evidence_meta)
