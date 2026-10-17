@@ -38,6 +38,8 @@ jobs:
         run: bash -n scripts/live_critic_probe.sh
       - name: Validate pinned model catalog preflight offline
         run: PYTHONPATH=. python tests/harness/test_free_model_catalog_preflight.py
+      - name: Test bounded free-model live driver with mocked provider
+        run: PYTHONPATH=. python tests/harness/test_live_free_pipeline_trial.py
       - name: Validate pinned-model smoke script
         run: bash -n scripts/live_pinned_pipeline_probe.sh
       - name: Run bounded offline life trial
