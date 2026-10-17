@@ -19,7 +19,7 @@ from core.truth import get_execution_limits
 from core.agents import planner, analyst, critic, synthesizer, final_critic_check
 from core.evidence_bridge import EvidenceBridgeError, format_evidence_for_prompt, load_analysis_evidence
 from core.llm import ask_llm
-from providers.base import ProviderTruncatedError
+from providers.base import ProviderTruncatedError, ProviderRateLimitError
 from core.cycle_guard import CycleGuard
 from memory.store import add_episodic_event
 
@@ -90,7 +90,7 @@ def _raw_answer(task: str, model: str) -> str:
         f"ЗАДАЧА:\n{task}"
     )
     try:
-        ceiling = int(os.getenv("AION_ROLE_TOKEN_CEILING", "1800"))
+        ceiling = int(os.getenv("AION_ROLE_TOKEN_CEILING", "4096"))
         if not 128 <= ceiling <= 8192:
             raise ValueError("AION_ROLE_TOKEN_CEILING вне диапазона 128..8192")
         requested = int(os.getenv("AION_ANALYST_TOKENS", "900"))
@@ -105,6 +105,8 @@ def _raw_answer(task: str, model: str) -> str:
             if not enabled or retry_budget <= budget:
                 raise
             return ask_llm(prompt, max_tokens=retry_budget, model=model).strip()
+    except ProviderRateLimitError:
+        return "[ОШИБКА:raw] HTTP 429 rate_limited"
     except Exception as exc:
         return f"[ОШИБКА:raw] {exc}"
 
@@ -180,7 +182,19 @@ def _legacy_pipeline(task: str, task_type: str, max_iterations: int, evidence_me
 
 
 def _multi_model_pipeline(task: str, task_type: str, models: list[str], max_iterations: int, evidence_meta: dict) -> dict:
-    raw_answers = {model: _raw_answer(task, model) for model in models}
+    raw_answers = {}
+    for model in models:
+        raw_answers[model] = _raw_answer(task, model)
+        if raw_answers[model].startswith("[ОШИБКА:raw] HTTP 429"):
+            return {
+                "status": "error",
+                "stage": "raw_multi_model",
+                "detail": "HTTP 429: испытание остановлено без запросов к следующей модели.",
+                "models": models,
+                "raw_answers": raw_answers,
+                "evidence": evidence_meta,
+                "truth_verified": False,
+            }
     usable = {m: a for m, a in raw_answers.items() if not a.startswith("[ОШИБКА")}
     if len(usable) < 2:
         return {
@@ -193,7 +207,12 @@ def _multi_model_pipeline(task: str, task_type: str, models: list[str], max_iter
         }
 
     raw_bundle = "\n\n".join(f"MODEL {m}:\n{a}" for m, a in usable.items())
-    rotations = min(len(models), max_iterations)
+    requested_rotations = int(os.getenv("AION_MULTI_TEST_ROUNDS", str(max_iterations)))
+    if not 1 <= requested_rotations <= max_iterations:
+        return {"status": "error", "stage": "model_selection",
+                "detail": "AION_MULTI_TEST_ROUNDS должен быть в пределах лимита Truth.",
+                "truth_verified": False}
+    rotations = min(len(models), requested_rotations)
     round_results = []
     final_answer = None
     accepted = False
@@ -267,7 +286,13 @@ def _multi_model_pipeline(task: str, task_type: str, models: list[str], max_iter
         "mode": "multi_model_role_rotation",
         "task_type": task_type,
         "models": models,
+        # Distinct IDs and isolated initial prompts are observable; actual
+        # model/vendor independence and factual truth are not proven by agreement.
         "independent_model_count": len(usable),
+        "independent_initial_outputs": len(usable),
+        "model_ids_distinct": len(set(usable)) == len(usable),
+        "truth_verified": False,
+        "verification_scope": "llm_review_only",
         "evidence": evidence_meta,
         "raw_answers": raw_answers,
         "rotations_planned": rotations,
@@ -285,6 +310,19 @@ def run_pipeline(task: str) -> dict:
     max_iterations = int(limits.get("max_iterations", 2))
     task_type = router(task)
     models = _models()
+    requested_models = os.getenv("AION_MODELS", "").strip()
+    if requested_models:
+        submitted = [item.strip() for item in requested_models.split(",")]
+        if (len(submitted) < 2 or any(not item for item in submitted)
+                or len(set(submitted)) != len(submitted)
+                or "openrouter/free" in submitted):
+            return {
+                "status": "error",
+                "stage": "model_selection",
+                "detail": "Для независимого сравнения нужны минимум две разные "
+                          "явно названные модели; дубликаты и openrouter/free запрещены.",
+                "truth_verified": False,
+            }
     evidence_text, evidence_meta = _evidence_context()
 
     if evidence_meta.get("status") == "rejected":
