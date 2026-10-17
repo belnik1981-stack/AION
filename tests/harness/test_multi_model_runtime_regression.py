@@ -2,10 +2,10 @@
 import os
 from unittest.mock import patch
 from core import pipeline
-from providers.base import ProviderTruncatedError, ProviderRateLimitError
+from providers.base import ProviderTruncatedError, ProviderRateLimitError, ProviderHTTPError
 
 
-def run_case(answer_fn, final_check, role_fn=None, max_iterations=3):
+def run_case(answer_fn, final_check, role_fn=None, max_iterations=3, prepared_raw=None):
     calls = []
     saved = []
     def ask(prompt, max_tokens, model):
@@ -29,7 +29,7 @@ def run_case(answer_fn, final_check, role_fn=None, max_iterations=3):
             final_critic_check=final_check,
             add_episodic_event=lambda task, answer: saved.append(answer),
         ):
-            result = pipeline.run_pipeline("Compare claims.")
+            result = pipeline.run_pipeline("Compare claims.", initial_raw_answers=prepared_raw)
     return result, calls, saved
 
 
@@ -134,5 +134,68 @@ with patch.dict(os.environ, {"AION_MULTI_TEST_ROUNDS": "1"}):
     )
 assert one_round["status"] == "rotations_exhausted", one_round
 assert one_round["rotations_used"] == 1, one_round
+
+# Preserve distinct, complete initial answers from a successful real task
+# instead of sending two redundant "raw" requests after a 2+2 preflight.
+prepared = {"model-a:free": "Independent A", "model-b:free": "Independent B"}
+reused, calls, _ = run_case(
+    lambda m: (_ for _ in ()).throw(AssertionError("Unexpected raw LLM request")),
+    lambda task, answer, model=None: (True, "OK"),
+    prepared_raw=prepared,
+)
+assert reused["status"] == "ok"
+assert reused["raw_answers"] == prepared
+assert all(reused["raw_diagnostics"][m] == {"status": "ok", "reused": True} for m in prepared)
+assert calls == [], calls
+
+# A partial or mismatched cache must not be reported as two independent
+# model answers. These are rejected before any role is invoked.
+for wrong_raw in (
+    {"model-a:free": "one answer"},
+    {"model-a:free": "A", "model-b:free": ""},
+    {"model-a:free": "A", "model-b:free": "[ОШИБКА:raw] HTTP 404"},
+    {"model-a:free": "A", "not-our-model:free": "B"},
+):
+    bad, calls, _ = run_case(
+        lambda m: "should-not-be-called",
+        lambda task, answer, model=None: (True, "OK"),
+        prepared_raw=wrong_raw,
+    )
+    assert bad["status"] == "error" and bad["stage"] == "raw_multi_model"
+    assert not calls, calls
+
+# Typed HTTP failures must expose which model failed without echoing
+# provider-supplied error bodies or consuming extra requests on 429.
+http_fail, calls, _ = run_case(
+    lambda m: (_ for _ in ()).throw(ProviderHTTPError(502, "SECRET-TEXT"))
+        if m == "model-a:free" else "Complete answer B",
+    lambda task, answer, model=None: (True, "OK"),
+)
+assert http_fail["status"] == "error" and http_fail["stage"] == "raw_multi_model"
+assert http_fail["raw_diagnostics"]["model-a:free"] == {
+    "status": "http_error", "http_status": 502
+}
+assert "SECRET-TEXT" not in str(http_fail)
+assert calls == ["model-a:free", "model-b:free"], calls
+
+rate_diag, calls, _ = run_case(
+    lambda m: (_ for _ in ()).throw(ProviderRateLimitError("secret-account-id"))
+        if m == "model-a:free" else "Do not call",
+    lambda task, answer, model=None: (True, "OK"),
+)
+assert rate_diag["status"] == "error" and rate_diag["stage"] == "raw_multi_model"
+assert rate_diag["raw_diagnostics"]["model-a:free"]["status"] == "rate_limited"
+assert "secret-account-id" not in str(rate_diag) and calls == ["model-a:free"]
+
+# A model exhausting both bounded output budgets is logged as truncated,
+# not misleadingly as "non-independent models".
+truncated, calls, _ = run_case(
+    lambda m: (_ for _ in ()).throw(ProviderTruncatedError("length"))
+        if m == "model-a:free" else "Answer B",
+    lambda task, answer, model=None: (True, "OK"),
+)
+assert truncated["stage"] == "raw_multi_model"
+assert truncated["raw_diagnostics"]["model-a:free"]["status"] == "truncated"
+assert calls[:2] == ["model-a:free", "model-a:free"] and len(calls) == 3
 
 print("MULTI MODEL RUNTIME REGRESSION: PASS")

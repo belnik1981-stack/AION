@@ -3,15 +3,12 @@
 Reuse the proven single-model readiness probe and catalog selector. Never
 interpret a model's verdict or agreement as independently verified truth.
 """
-import hashlib
 import os
 import sys
-from pathlib import Path
 from urllib.error import HTTPError, URLError
 
-from core.pipeline import run_pipeline
-from providers.base import ProviderError, ProviderHTTPError, ProviderRateLimitError, ProviderTruncatedError
-from tools.live_free_pipeline_trial import _probe, _hash_truth
+from core.pipeline import _raw_answer_attempt, run_pipeline
+from tools.live_free_pipeline_trial import _hash_truth
 from tools.select_free_openrouter_model import catalog_candidates
 
 
@@ -49,40 +46,55 @@ def _candidate_models(catalog, requested=None):
     return ordering[:MAX_PREFLIGHT_CANDIDATES]
 
 
-def _find_two_responsive(candidates, explicit=False, probe=None):
-    probe = probe or _probe
-    selected = []
-    for mid in candidates:
-        if len(selected) == 2:
-            break
-        if _author(mid) in {_author(other) for other in selected}:
-            continue
-        print("[PREFLIGHT]", mid, flush=True)
-        try:
-            probe(mid)
-        except ProviderRateLimitError:
-            print("[FAIL] HTTP 429: stop without additional model requests.", flush=True)
-            return None
-        except ProviderTruncatedError:
-            print("[PREFLIGHT] Incomplete response rejected.", flush=True)
-            if explicit:
-                return None
-            continue
-        except ProviderHTTPError as exc:
-            print("[PREFLIGHT] Provider HTTP", exc.status_code, flush=True)
-            if explicit or exc.status_code not in PREFLIGHT_RECOVERABLE:
-                return None
-            continue
-        except ProviderError:
-            print("[FAIL] Provider rejected preflight; no further requests.", flush=True)
-            return None
-        selected.append(mid)
-        print("[PASS] Model returned complete preflight:", mid, flush=True)
+def _collect_two_raw_answers(candidates, explicit=False, attempt=None):
+    """Use the REAL comparison task for readiness and reuse completed answers.
 
-    if len(selected) != 2:
-        print("[FAIL] Two distinct responsive free models not established.", flush=True)
+    This avoids spending two extra provider requests on easy 2+2 prompts,
+    then failing at the first meaningful prompt. No duplicate raw requests
+    after model selection, even when the model catalog changes.
+    """
+    attempt = attempt or _raw_answer_attempt
+    answers = {}
+    for mid in candidates:
+        if len(answers) == 2:
+            break
+        if _author(mid) in {_author(m) for m in answers}:
+            continue
+        print("[RAW PREFLIGHT]", mid, flush=True)
+        outcome = attempt(TEST_TASK, mid)
+        if not isinstance(outcome, dict):
+            print("[RAW ERROR]", mid, "invalid_status", flush=True)
+            return None
+        state = outcome.get("status", "invalid_status")
+        status_code = outcome.get("http_status")
+        if state == "ok":
+            answer = outcome.get("answer")
+            if not isinstance(answer, str) or not answer.strip():
+                state = "invalid_response"
+            else:
+                answers[mid] = answer
+                print("[PASS] Complete independent raw answer:", mid, flush=True)
+                continue
+        # Categorize from typed exceptions, never parse untrusted error text.
+        print("[RAW ERROR]", mid, state,
+              "HTTP " + str(status_code) if type(status_code) is int else "",
+              flush=True)
+        if state == "rate_limited" or status_code == 429:
+            print("[FAIL] HTTP 429: no further model requests.", flush=True)
+            return None
+        if explicit:
+            return None
+        if state == "truncated":
+            continue
+        if state == "http_error" and status_code in PREFLIGHT_RECOVERABLE:
+            continue
+        # Access, policy, billing, unknown errors must not trigger retries.
         return None
-    return selected
+
+    if len(answers) != 2:
+        print("[FAIL] Two finished independent raw answers were not obtained.", flush=True)
+        return None
+    return answers
 
 
 def _safe_preview(value):
@@ -119,20 +131,33 @@ def execute():
             print("[FAIL] Two free models cannot be verified from catalog.", flush=True)
             return 2
         print("[CATALOG] Eligible free models:", len(catalog), flush=True)
-        two = _find_two_responsive(candidates, explicit=bool(requested))
-        if two is None:
-            print("[FAIL] MULTI PREFLIGHT; pipeline not started.", flush=True)
-            return 4
-        # The isolated preflight can set AION_MODEL and model-specific reasoning
-        # flags. Clear them before model-explicit multi-role calls.
-        os.environ["AION_MODEL"] = two[0]
+        # Raw prompts are the real workload. Reuse the two completed initial
+        # answers downstream, avoiding a redundant request after preflight.
+        os.environ["AION_EVIDENCE_BUNDLE"] = ""
         os.environ["AION_DISABLE_REASONING"] = "0"
+        raw_answers = _collect_two_raw_answers(candidates, explicit=bool(requested))
+        if raw_answers is None:
+            print("[FAIL] MULTI RAW PREFLIGHT; role execution not started.", flush=True)
+            return 4
+        two = list(raw_answers)
+        os.environ["AION_MODEL"] = two[0]
         os.environ["AION_MODELS"] = ",".join(two)
         print("[PASS] TWO DISTINCT MODEL IDS:", ", ".join(two), flush=True)
-        print("[MODE] Separate initial answers; one maximum comparison round.", flush=True)
-        result = run_pipeline(TEST_TASK)
+        print("[MODE] Two complete initial answers reused; one comparison round.", flush=True)
+        result = run_pipeline(TEST_TASK, initial_raw_answers=raw_answers)
         if not isinstance(result, dict):
             print("[FAIL] Pipeline returned invalid result.", flush=True)
+            return 1
+        if result.get("status") == "error":
+            print("[FAIL] MULTI MODEL PIPELINE", flush=True)
+            print("[STATUS]", result.get("status"), flush=True)
+            print("[STAGE]", result.get("stage", "unknown"), flush=True)
+            if result.get("detail"):
+                print("[DETAIL]", _safe_preview(result["detail"]), flush=True)
+            for mid, diag in (result.get("raw_diagnostics") or {}).items():
+                if isinstance(diag, dict):
+                    print("[RAW DIAG]", mid, diag.get("status", "unknown"),
+                          diag.get("http_status", ""), flush=True)
             return 1
         if (result.get("mode") != "multi_model_role_rotation"
                 or result.get("independent_model_count") != 2
