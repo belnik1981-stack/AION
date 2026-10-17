@@ -14,7 +14,7 @@ import re
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
-from providers.base import BaseProvider, ProviderError, ProviderTruncatedError, ProviderRateLimitError
+from providers.base import BaseProvider, ProviderError, ProviderHTTPError, ProviderTruncatedError, ProviderRateLimitError
 
 
 _REASONING_EFFORTS = {"max", "xhigh", "high", "medium", "low", "minimal", "none"}
@@ -272,12 +272,14 @@ class OpenAICompatibleProvider(BaseProvider):
                 ) from e
             category = self._safe_error_type(e) if e.code == 400 else "unknown"
             if e.code == 400:
-                raise ProviderError(
+                raise ProviderHTTPError(
+                    400,
                     f"HTTP 400 ({category}): провайдер отклонил параметры запроса "
                     "или требования выбранной модели. Проверьте совместимость модели, "
                     "бюджет токенов и настройку reasoning; исходное сообщение скрыто."
                 ) from e
-            raise ProviderError(
+            raise ProviderHTTPError(
+                e.code,
                 f"HTTP {e.code}: запрос отклонён провайдером. "
                 "Тело ответа скрыто во избежание утечки данных."
             ) from e
