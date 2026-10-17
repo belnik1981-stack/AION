@@ -96,10 +96,10 @@ def eligible_models(models, today=None):
 
 
 def fetch_json(url, api_key):
-    req = Request(url, headers={
-        "Authorization": "Bearer " + api_key,
-        "Accept": "application/json",
-    })
+    headers = {"Accept": "application/json"}
+    if api_key:
+        headers["Authorization"] = "Bearer " + api_key
+    req = Request(url, headers=headers)
     with urlopen(req, timeout=20) as response:
         raw = response.read(8 * 1024 * 1024 + 1)
     if len(raw) > 8 * 1024 * 1024:
@@ -107,9 +107,23 @@ def fetch_json(url, api_key):
     return json.loads(raw.decode("utf-8"))
 
 
-def catalog_selection(key, requested=None, fetcher=None):
+def catalog_candidates(key, requested=None, fetcher=None):
+    """List only zero-priced models visible to the authenticated user.
+
+    The official /models/user route applies account guardrails and provider
+    preferences, unlike public /models. A 404 means this API is unavailable:
+    fall back to the public catalog, but never swallow auth/permission errors.
+    """
     fetcher = fetcher or fetch_json
-    payload = fetcher(BASE + "/models", key)
+    if key:
+        try:
+            payload = fetcher(BASE + "/models/user", key)
+        except HTTPError as exc:
+            if exc.code != 404:
+                raise
+            payload = fetcher(BASE + "/models", key)
+    else:
+        payload = fetcher(BASE + "/models", key)
     entries = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(entries, list):
         raise ValueError("OpenRouter model catalog has unexpected format")
@@ -117,10 +131,15 @@ def catalog_selection(key, requested=None, fetcher=None):
     if requested and requested != "openrouter/free":
         if requested not in candidates:
             raise ValueError("Requested model is not an eligible zero-priced text model")
-        return requested
+        return [requested]
     if not candidates:
         raise ValueError("No eligible zero-priced text model found in current catalog")
-    return candidates[0]
+    return candidates
+
+
+def catalog_selection(key, requested=None, fetcher=None):
+    """Backwards-compatible single-selection entrypoint."""
+    return catalog_candidates(key, requested, fetcher)[0]
 
 
 def main():
