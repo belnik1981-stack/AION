@@ -101,8 +101,10 @@ def _ask(role: str, content: str, model: str | None = None) -> str:
         if not isinstance(result, str) or not result.strip():
             raise ValueError("LLM вернула пустой ответ")
         return result.strip()
-    except Exception as e:
-        return f"[ОШИБКА:{role}] {e}"
+    except Exception:
+        # Provider exception text may contain API credentials, prompts or account data.
+        # Never echo untrusted exception messages to the user or persisted reports.
+        return f"[ОШИБКА:{role}] role_execution_failed"
 
 
 def planner(task: str, model: str | None = None) -> str:
