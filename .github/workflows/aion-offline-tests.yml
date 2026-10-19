@@ -80,6 +80,9 @@ jobs:
       - name: Run global runtime budget regression
         run: python tests/harness/test_runtime_budget.py
 
+      - name: Run crash-safe storage fault injection
+        run: python tests/harness/test_crash_safe_storage.py
+
       - name: Verify live free model catalog guard without network
         run: python tests/harness/test_free_model_catalog_preflight.py
 

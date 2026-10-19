@@ -34,6 +34,7 @@ for test_file in \
   tests/harness/test_role_error_sanitization.py \
   tests/harness/test_provider_resilience.py \
   tests/harness/test_runtime_budget.py \
+  tests/harness/test_crash_safe_storage.py \
   tests/harness/test_free_model_catalog_preflight.py \
   tests/harness/test_live_free_pipeline_trial.py \
   tests/harness/test_live_free_multi_model_trial.py \
