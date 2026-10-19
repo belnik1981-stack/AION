@@ -35,7 +35,7 @@ with TemporaryDirectory() as temp_dir:
         assert secret not in store.get_recent_history()
 
         try:
-            store.add_long_term_lesson(f"claim {secret}")
+            store.stage_long_term_lesson(f"claim {secret}", "sensitive-promotion")
         except SensitiveDataError:
             pass
         else:

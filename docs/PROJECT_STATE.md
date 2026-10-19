@@ -171,6 +171,10 @@ AION должен сохранять происхождение утвержде
 episodic memory и server state проходят единый bounded redaction; обнаруженный
 секрет полностью блокирует long-term promotion.
 
+**FACT:** verified long-term promotion использует pending memory, два
+идемпотентных audit events и crash-safe transaction journal; direct promotion
+запрещён, а незавершённый claim не виден как learned lesson.
+
 ## 10. Открытые технические ограничения
 
 - **FACT:** основной pipeline использует единый call budget; повтор после
@@ -188,8 +192,8 @@ episodic memory и server state проходят единый bounded redaction;
   чувствительных данных; шифрование at rest не реализовано.
 - **OPEN:** ограничение роста episodic history должно сохранять архив, а не
   удалять старые записи.
-- **OPEN:** promotion long-term knowledge и audit пока не образуют одну
-  восстанавливаемую транзакцию.
+- **OPEN:** человеческий reviewer и заявленные evidence attributes не доказывают
+  внешнюю подлинность источника; promotion не означает Truth update.
 
 ## 11. Ближайший рациональный шаг
 

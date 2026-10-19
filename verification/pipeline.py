@@ -13,10 +13,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from memory.store import add_long_term_lesson
+from memory.store import (
+    commit_staged_long_term_lesson,
+    stage_long_term_lesson,
+)
+from security.redaction import SensitiveDataError, redact_structure
+from storage.atomic_json import append_jsonl_record, load_json, update_json
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_AUDIT_FILE = ROOT / "audit" / "verification.jsonl"
+DEFAULT_PROMOTION_JOURNAL = ROOT / "knowledge" / "adaptive" / "promotion_transactions.json"
 
 
 @dataclass(frozen=True)
@@ -173,10 +179,11 @@ def verify_candidate_record(candidate: dict[str, Any], claim: str, evidence: Ite
 
 
 def append_audit_record(record: dict[str, Any], audit_file: str | Path = DEFAULT_AUDIT_FILE) -> None:
-    path = Path(audit_file)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    safe_record, redactions = redact_structure(record)
+    if redactions:
+        raise SensitiveDataError("Audit append заблокирован: обнаружены чувствительные данные")
+    unique_field = "event_id" if safe_record.get("event_id") else None
+    append_jsonl_record(audit_file, safe_record, unique_field=unique_field)
 
 
 def _reconstruct_record(verification_record: dict[str, Any]) -> tuple[str, list[EvidenceItem], VerificationPolicy]:
@@ -194,7 +201,158 @@ def _reconstruct_record(verification_record: dict[str, Any]) -> tuple[str, list[
     return claim, evidence, policy
 
 
-def promote_verified_claim(verification_record: dict[str, Any], *, reviewed_by: str, audit_file: str | Path = DEFAULT_AUDIT_FILE) -> dict[str, Any]:
+def _promotion_id(verification_hash_value: str, reviewer: str) -> str:
+    payload = f"{verification_hash_value}\n{reviewer}".encode("utf-8")
+    return "promotion-" + hashlib.sha256(payload).hexdigest()[:24]
+
+
+def _journal(path: str | Path) -> dict[str, Any]:
+    journal = load_json(path, default_factory=dict, expected_type=dict)
+    journal.setdefault("version", 1)
+    journal.setdefault("transactions", {})
+    if not isinstance(journal["transactions"], dict):
+        raise ValueError("Promotion journal transactions must be an object")
+    return journal
+
+
+def _transaction_digest(audit_record: dict[str, Any]) -> str:
+    return hashlib.sha256(_canonical_json(audit_record).encode("utf-8")).hexdigest()
+
+
+def _store_transaction(path: str | Path, transaction: dict[str, Any]) -> dict[str, Any]:
+    promotion_id = transaction["promotion_id"]
+
+    def store(journal: dict[str, Any]) -> dict[str, Any]:
+        journal.setdefault("version", 1)
+        transactions = journal.setdefault("transactions", {})
+        if not isinstance(transactions, dict):
+            raise ValueError("Promotion journal transactions must be an object")
+        existing = transactions.get(promotion_id)
+        if existing is not None:
+            if (existing.get("transaction_digest") != transaction.get("transaction_digest")
+                    or existing.get("claim") != transaction.get("claim")):
+                raise ValueError("Promotion transaction identity collision")
+            return journal
+        transactions[promotion_id] = transaction
+        journal["truth_modified"] = False
+        return journal
+
+    return update_json(
+        path,
+        default_factory=dict,
+        expected_type=dict,
+        updater=store,
+    )
+
+
+def _set_transaction_state(path: str | Path, promotion_id: str, state: str) -> dict[str, Any]:
+    def update(journal: dict[str, Any]) -> dict[str, Any]:
+        transactions = journal.get("transactions")
+        if not isinstance(transactions, dict) or promotion_id not in transactions:
+            raise ValueError("Promotion transaction not found")
+        transactions[promotion_id]["state"] = state
+        transactions[promotion_id]["updated_at"] = _utc_now()
+        journal["truth_modified"] = False
+        return journal
+
+    journal = update_json(
+        path,
+        default_factory=dict,
+        expected_type=dict,
+        updater=update,
+    )
+    return journal["transactions"][promotion_id]
+
+
+def _advance_promotion(
+    transaction: dict[str, Any],
+    *,
+    journal_file: str | Path,
+    audit_file: str | Path,
+) -> dict[str, Any]:
+    promotion_id = transaction["promotion_id"]
+    claim = transaction["claim"]
+    audit_record = transaction["audit_record"]
+    if transaction.get("transaction_digest") != _transaction_digest(audit_record):
+        raise ValueError("Promotion transaction integrity mismatch")
+
+    states = {
+        "prepared": 0,
+        "audit_prepared": 1,
+        "memory_staged": 2,
+        "audit_committed": 3,
+        "committed": 4,
+    }
+    state = transaction.get("state")
+    if state not in states:
+        raise ValueError("Unknown promotion transaction state")
+    rank = states[state]
+
+    if rank < 1:
+        append_audit_record({
+            "event": "promotion_prepared",
+            "event_id": f"{promotion_id}:prepared",
+            "promotion_id": promotion_id,
+            "claim_id": audit_record["claim_id"],
+            "verification_hash": audit_record["verification_hash"],
+            "reviewed_by": audit_record["reviewed_by"],
+            "timestamp": _utc_now(),
+            "truth_modified": False,
+        }, audit_file)
+        transaction = _set_transaction_state(journal_file, promotion_id, "audit_prepared")
+        rank = 1
+
+    if rank < 2:
+        stage_long_term_lesson(claim, promotion_id)
+        transaction = _set_transaction_state(journal_file, promotion_id, "memory_staged")
+        rank = 2
+
+    if rank < 3:
+        append_audit_record(audit_record, audit_file)
+        transaction = _set_transaction_state(journal_file, promotion_id, "audit_committed")
+        rank = 3
+
+    if rank < 4:
+        commit_staged_long_term_lesson(claim, promotion_id)
+        _set_transaction_state(journal_file, promotion_id, "committed")
+
+    return audit_record
+
+
+def recover_pending_promotions(
+    *,
+    journal_file: str | Path = DEFAULT_PROMOTION_JOURNAL,
+    audit_file: str | Path = DEFAULT_AUDIT_FILE,
+) -> dict[str, Any]:
+    journal = _journal(journal_file)
+    recovered = 0
+    already_committed = 0
+    for promotion_id in sorted(journal["transactions"]):
+        transaction = journal["transactions"][promotion_id]
+        if transaction.get("state") == "committed":
+            already_committed += 1
+            continue
+        _advance_promotion(
+            transaction,
+            journal_file=journal_file,
+            audit_file=audit_file,
+        )
+        recovered += 1
+    return {
+        "status": "ok",
+        "recovered": recovered,
+        "already_committed": already_committed,
+        "truth_modified": False,
+    }
+
+
+def promote_verified_claim(
+    verification_record: dict[str, Any],
+    *,
+    reviewed_by: str,
+    audit_file: str | Path = DEFAULT_AUDIT_FILE,
+    journal_file: str | Path = DEFAULT_PROMOTION_JOURNAL,
+) -> dict[str, Any]:
     reviewer = reviewed_by.strip()
     if not reviewer:
         raise ValueError("Explicit reviewer identity is required")
@@ -218,9 +376,36 @@ def promote_verified_claim(verification_record: dict[str, Any], *, reviewed_by: 
     if supplied_evaluation.get("decision") != fresh_evaluation.decision:
         raise ValueError("Stored evaluation does not match fresh verification")
 
-    add_long_term_lesson(claim)
+    safe_payload, redactions = redact_structure({
+        "claim": claim,
+        "evidence": [asdict(item) for item in evidence],
+        "reviewed_by": reviewer,
+    })
+    if redactions:
+        raise SensitiveDataError(
+            "Promotion заблокирован: claim, evidence или reviewer содержит чувствительные данные"
+        )
+    claim = safe_payload["claim"]
+    reviewer = safe_payload["reviewed_by"]
+    promotion_id = _promotion_id(expected_hash, reviewer)
+
+    existing_journal = _journal(journal_file)
+    existing = existing_journal["transactions"].get(promotion_id)
+    if existing is not None:
+        if (existing.get("claim") != claim
+                or existing.get("verification_hash") != expected_hash
+                or existing.get("reviewed_by") != reviewer):
+            raise ValueError("Existing promotion transaction does not match request")
+        return _advance_promotion(
+            existing,
+            journal_file=journal_file,
+            audit_file=audit_file,
+        )
+
     audit_record = {
         "event": "promote_to_long_term",
+        "event_id": f"{promotion_id}:committed",
+        "promotion_id": promotion_id,
         "claim_id": verification_record.get("claim_id") or _claim_id(claim),
         "candidate_id": verification_record.get("candidate_id"),
         "claim": claim,
@@ -233,5 +418,22 @@ def promote_verified_claim(verification_record: dict[str, Any], *, reviewed_by: 
         "destination": "knowledge/long_term/knowledge.json",
         "truth_modified": False,
     }
-    append_audit_record(audit_record, audit_file)
-    return audit_record
+    transaction = {
+        "promotion_id": promotion_id,
+        "state": "prepared",
+        "claim": claim,
+        "claim_id": audit_record["claim_id"],
+        "verification_hash": expected_hash,
+        "reviewed_by": reviewer,
+        "audit_record": audit_record,
+        "created_at": _utc_now(),
+        "updated_at": _utc_now(),
+        "truth_modified": False,
+    }
+    transaction["transaction_digest"] = _transaction_digest(audit_record)
+    _store_transaction(journal_file, transaction)
+    return _advance_promotion(
+        transaction,
+        journal_file=journal_file,
+        audit_file=audit_file,
+    )

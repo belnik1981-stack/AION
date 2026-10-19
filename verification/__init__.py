@@ -9,6 +9,7 @@ from verification.pipeline import (
     VerificationPolicy,
     evaluate_claim,
     promote_verified_claim,
+    recover_pending_promotions,
     verify_candidate_record,
 )
 
@@ -17,5 +18,6 @@ __all__ = [
     "VerificationPolicy",
     "evaluate_claim",
     "promote_verified_claim",
+    "recover_pending_promotions",
     "verify_candidate_record",
 ]

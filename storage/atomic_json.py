@@ -38,6 +38,7 @@ class JsonRecoveryWarning(RuntimeWarning):
 
 
 _PROCESS_LOCK = threading.RLock()
+MAX_JSONL_RECORD_BYTES = 1024 * 1024
 
 
 def backup_path(path: str | Path) -> Path:
@@ -287,3 +288,82 @@ def update_json(
         if updated != current:
             _atomic_write_json_unlocked(target, updated, expected_type=expected_type)
         return copy.deepcopy(updated)
+
+
+def append_jsonl_record(
+    path: str | Path,
+    record: dict[str, Any],
+    *,
+    unique_field: str | None = None,
+) -> bool:
+    """Append one fsynced JSONL record after validating the existing log.
+
+    Returns False when a record with the same `unique_field` value is already
+    present. A partial/corrupt existing line blocks the append without modifying
+    the log, making interrupted audit writes visible instead of silently skipped.
+    """
+
+    if not isinstance(record, dict):
+        raise TypeError("JSONL record должен быть объектом")
+    if unique_field is not None:
+        unique_value = record.get(unique_field)
+        if not isinstance(unique_value, str) or not unique_value:
+            raise ValueError("Уникальный идентификатор JSONL record отсутствует")
+    else:
+        unique_value = None
+
+    try:
+        payload = (json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise JsonStorageError("Audit record не сериализуется в JSON") from exc
+    if len(payload) > MAX_JSONL_RECORD_BYTES:
+        raise JsonStorageError("Audit record превышает безопасный лимит размера")
+
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with _storage_lock(target):
+        if target.exists():
+            try:
+                with target.open("rb") as handle:
+                    for line_number, raw_line in enumerate(handle, start=1):
+                        if len(raw_line) > MAX_JSONL_RECORD_BYTES:
+                            raise JsonCorruptionError(
+                                f"Audit log повреждён в строке {line_number}"
+                            )
+                        stripped = raw_line.strip()
+                        if not stripped:
+                            continue
+                        try:
+                            existing = json.loads(stripped.decode("utf-8"))
+                        except (UnicodeError, json.JSONDecodeError) as exc:
+                            raise JsonCorruptionError(
+                                f"Audit log повреждён в строке {line_number}"
+                            ) from exc
+                        if not isinstance(existing, dict):
+                            raise JsonCorruptionError(
+                                f"Audit log содержит не-объект в строке {line_number}"
+                            )
+                        if unique_field is not None and existing.get(unique_field) == unique_value:
+                            return False
+            except OSError as exc:
+                raise JsonStorageError("Не удалось проверить audit log") from exc
+
+        descriptor = os.open(target, os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
+        try:
+            view = memoryview(payload)
+            while view:
+                written = os.write(descriptor, view)
+                if written <= 0:
+                    raise OSError("zero-length audit write")
+                view = view[written:]
+            os.fsync(descriptor)
+        except OSError as exc:
+            raise JsonStorageError("Audit append не завершён") from exc
+        finally:
+            os.close(descriptor)
+        try:
+            os.chmod(target, 0o600)
+        except OSError:
+            pass
+        _fsync_directory(target.parent)
+        return True
