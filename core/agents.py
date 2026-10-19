@@ -12,8 +12,10 @@ from providers.base import (
     ProviderError,
     ProviderHTTPError,
     ProviderRateLimitError,
+    ProviderResponseTooLargeError,
     ProviderTruncatedError,
 )
+from core.runtime_budget import RuntimeLimitError
 from core.truth import get_principles, get_execution_limits
 
 
@@ -106,8 +108,12 @@ def _ask(role: str, content: str, model: str | None = None) -> str:
         if not isinstance(result, str) or not result.strip():
             raise ValueError("LLM вернула пустой ответ")
         return result.strip()
+    except RuntimeLimitError as exc:
+        return f"[ОШИБКА:{role}] {exc.code}"
     except ProviderRateLimitError:
         return f"[ОШИБКА:{role}] provider_rate_limited"
+    except ProviderResponseTooLargeError:
+        return f"[ОШИБКА:{role}] provider_response_too_large"
     except ProviderTruncatedError:
         return f"[ОШИБКА:{role}] provider_response_truncated"
     except ProviderHTTPError as exc:

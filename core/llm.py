@@ -6,11 +6,17 @@ Engine обращается только к этому модулю.
 """
 
 from providers.registry import create_provider
+from core.runtime_budget import current_budget
 
 
 def ask_llm(prompt: str, max_tokens: int | None = None, model: str | None = None) -> str:
     """Единая точка запроса к LLM с опциональным лимитом и выбором модели."""
-    provider = create_provider(model=model)
+    budget = current_budget()
+    timeout = None
+    if budget is not None:
+        budget.reserve_call()
+        timeout = budget.provider_timeout()
+    provider = create_provider(model=model, timeout=timeout)
     return provider.ask(prompt, max_tokens=max_tokens)
 
 

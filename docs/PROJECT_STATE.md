@@ -1,10 +1,8 @@
 # PROJECT STATE
 
-Дата контрольной точки: 2026-09-12  
-Рабочая ветка: `multi-model-role-rotation-v1-20260911`  
-База ветки: `evidence-objects-v2-20260909@ce10638524226e721979963a937aa90e05cebd2a`  
-Draft PR: `#4` — `Add multi-model role rotation and validated evidence bridge`  
-`master` не изменён.
+Дата актуализации: 2026-10-19
+Проверенный baseline: `master@847d08da95bbe53b8c8caabc31b9c4342586cfab` после PR #21
+Текущий этап: полный аудит и последовательное устранение подтверждённых дефектов.
 
 ## 1. Назначение этого файла
 
@@ -156,21 +154,28 @@ AION должен сохранять происхождение утвержде
 
 ## 9. Проверки текущей ветки
 
-**FACT:** GitHub Actions для commit `5fac26130cd8183c9886e17b78a594499036c505` завершены успешно:
+**FACT:** PR #21 объединён с `master` как `847d08d`; он блокирует утечку
+текста provider exceptions из role-результатов.
 
-- `Offline information-cleaning trial` — success;
-- `Offline evidence-objects v2 trial` — success.
+**FACT:** обязательные GitHub Actions PR #21 завершены успешно на Python 3.10
+и 3.12, после слияния полный offline life trial повторно прошёл локально.
 
-**FACT:** Draft PR #4 остаётся открытым и не слитым.
+**FACT:** текущий runtime-budget этап добавляет один общий deadline из Truth,
+суммарный лимит LLM-вызовов, максимум четыре модели и response-size cap.
 
 ## 10. Открытые технические ограничения
 
-- **OPEN:** общий лимит всех LLM/tool calls ещё не связан единым бюджетом с `max_iterations`.
-- **OPEN:** provider timeout не доказанно связан с общим `timeout_seconds` из Truth.
+- **FACT:** основной pipeline использует единый call budget; повтор после
+  усечения расходует его как отдельный вызов.
+- **FACT:** provider timeout ограничен оставшимся `timeout_seconds` общего
+  монотонного deadline.
 - **OPEN:** нет доверенного внешнего механизма проверки реальной независимости скрытых dependency roots.
 - **OPEN:** внешняя подлинность provenance и semantic truth verification остаются нерешёнными.
 - **OPEN:** автоматическое promotion в long-term memory/Truth не разрешено.
-- **OPEN:** response-size cap до JSON parsing у OpenAI-compatible provider ещё не добавлен.
+- **FACT:** response-size cap применяется до JSON parsing.
+- **OPEN:** optional Agents SDK runtime ещё не подключён к общему бюджету.
+- **OPEN:** принудительная отмена уже начатого системного вызова остаётся
+  best-effort поверх socket timeout.
 
 ## 11. Ближайший рациональный шаг
 
@@ -191,8 +196,7 @@ AION должен сохранять происхождение утвержде
 
 `master` — основная ветка репозитория. Экспериментальные изменения выполняются в отдельных ветках.
 
-Текущая ветка: `multi-model-role-rotation-v1-20260911`.
-
-Слияние изменений в `master` без отдельного разрешения владельца проекта запрещено.
+Изменения выполняются небольшими ветками и объединяются только после
+обязательных успешных проверок, проверки конфликтов и явной трассировки PR.
 
 Полная история предыдущих контрольных точек сохраняется Git; в этом файле поддерживается только компактное актуальное состояние.

@@ -33,6 +33,7 @@ API-ключ для этих команд не требуется.
 - [PROJECT_STATE](PROJECT_STATE.md)
 - [ADR-0001: information cleaning v1](architecture/ADR-0001-INFORMATION_CLEANING_TRIAL_V1.md)
 - [ADR-0002: Evidence Objects v2](architecture/ADR-0002-EVIDENCE_OBJECTS_V2.md)
+- [ADR-0003: общий runtime-бюджет](architecture/ADR-0003-GLOBAL_RUNTIME_BUDGET.md)
 - [Инструкция v2](trials/EVIDENCE_OBJECTS_V2.md)
 - [Source manifest](egde/SOURCE_MANIFEST_2026-09-08.md)
 
@@ -41,5 +42,7 @@ API-ключ для этих команд не требуется.
 - внешняя подлинность provenance и скрытые зависимости источников не доказаны;
 - semantic verification claim не реализована;
 - promotion в candidate/long-term memory запрещён;
-- единый runtime deadline, суммарный лимит LLM/tool calls и response-size cap не закрыты;
+- принудительная отмена уже начатого системного сетевого вызова остаётся best-effort;
+- общий runtime-бюджет охватывает основной pipeline, но не отдельный optional Agents SDK runtime;
+- актуальное реальное API-испытание требует ключ владельца и доступных бесплатных моделей;
 - merge в `master` требует отдельного решения владельца.
