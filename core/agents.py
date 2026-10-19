@@ -8,7 +8,12 @@ Governance-контекст и может быть запущена на явн�
 import os
 
 from core.llm import ask_llm
-from providers.base import ProviderTruncatedError
+from providers.base import (
+    ProviderError,
+    ProviderHTTPError,
+    ProviderRateLimitError,
+    ProviderTruncatedError,
+)
 from core.truth import get_principles, get_execution_limits
 
 
@@ -101,6 +106,17 @@ def _ask(role: str, content: str, model: str | None = None) -> str:
         if not isinstance(result, str) or not result.strip():
             raise ValueError("LLM вернула пустой ответ")
         return result.strip()
+    except ProviderRateLimitError:
+        return f"[ОШИБКА:{role}] provider_rate_limited"
+    except ProviderTruncatedError:
+        return f"[ОШИБКА:{role}] provider_response_truncated"
+    except ProviderHTTPError as exc:
+        # Only expose a valid numeric status, never arbitrary exception fields.
+        status = exc.status_code
+        safe_status = status if type(status) is int and 100 <= status <= 599 else "unknown"
+        return f"[ОШИБКА:{role}] provider_http_{safe_status}"
+    except ProviderError:
+        return f"[ОШИБКА:{role}] provider_failure"
     except Exception:
         # Provider exception text may contain API credentials, prompts or account data.
         # Never echo untrusted exception messages to the user or persisted reports.
