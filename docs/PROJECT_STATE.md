@@ -1,7 +1,7 @@
 # PROJECT STATE
 
 Дата актуализации: 2026-10-19
-Проверенный baseline: `master@2f6935c1f47740b1265275a9db93cb35843c49d8` после PR #27
+Проверенный baseline: `master@915911dff00982b35eb8d38419592e3fc9b56a32` после PR #28
 Текущий этап: полный аудит и последовательное устранение подтверждённых дефектов.
 
 ## 1. Назначение этого файла
@@ -194,6 +194,11 @@ divergent/minority claims и analysis-only evidence alignment.
 non-global адреса, нестандартные порты и HTTPS downgrade, ограничивает ресурсы
 и не выводит наружу сырые сетевые исключения.
 
+**FACT:** optional Agents SDK runtime по умолчанию допускает только free-модели
+OpenRouter, отключает SDK retries, ограничивает turns/tokens/model-call и весь
+run по времени, скрывает provider exceptions и не имеет права записи Truth или
+memory.
+
 ## 10. Открытые технические ограничения
 
 - **FACT:** основной pipeline использует единый call budget; повтор после
@@ -208,7 +213,8 @@ non-global адреса, нестандартные порты и HTTPS downgrad
   проверкой адреса и системным соединением.
 - **OPEN:** автоматическое promotion в long-term memory/Truth не разрешено.
 - **FACT:** response-size cap применяется до JSON parsing.
-- **OPEN:** optional Agents SDK runtime ещё не подключён к общему бюджету.
+- **FACT:** Agents SDK использует отдельный bounded budget из тех же Truth
+  limits; одновременный SDK run и основной pipeline пока не делят один счётчик.
 - **OPEN:** принудительная отмена уже начатого системного вызова остаётся
   best-effort поверх socket timeout.
 - **OPEN:** pattern redaction не гарантирует обнаружение неизвестных форматов

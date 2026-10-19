@@ -13,6 +13,26 @@ permissions:
   contents: read
 
 jobs:
+  agents-sdk-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned optional Agents SDK
+        run: python -m pip install -r requirements-core.txt -r requirements-agents.txt
+
+      - name: Verify pinned SDK import contract without network
+        env:
+          PYTHONPATH: .
+        run: python tests/harness/test_agents_sdk_import_contract.py
+
   offline-harness:
     runs-on: ubuntu-latest
     env:
@@ -43,6 +63,9 @@ jobs:
 
       - name: Run Agents runtime adapter harness
         run: python tests/harness/test_agents_runtime_adapter.py
+
+      - name: Check optional Agents SDK import contract when installed
+        run: python tests/harness/test_agents_sdk_import_contract.py
 
       - name: Run chat ingestion harness
         run: python tests/harness/test_chat_ingestion.py

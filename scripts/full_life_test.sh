@@ -42,6 +42,7 @@ for test_file in \
   tests/harness/test_live_free_pipeline_trial.py \
   tests/harness/test_live_free_multi_model_trial.py \
   tests/harness/test_agents_runtime_adapter.py \
+  tests/harness/test_agents_sdk_import_contract.py \
   tests/harness/test_chat_ingestion.py \
   tests/harness/test_verification_pipeline.py \
   tests/harness/test_verification_integrity.py \
