@@ -7,6 +7,7 @@ from pathlib import Path
 from core.truth import get_execution_limits
 from core.engine import load_state, run_cycle
 from core.pipeline import run_pipeline
+from storage.atomic_json import atomic_write_json, load_json
 
 PORT = 8080
 MAX_POST_BYTES = 64_000
@@ -59,18 +60,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
 
 def load_pipeline_state() -> dict:
-    if not PIPELINE_STATE_FILE.exists():
-        return {}
-    try:
-        return json.loads(PIPELINE_STATE_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
+    return load_json(PIPELINE_STATE_FILE, default_factory=dict, expected_type=dict)
 
 
 def save_pipeline_state(result: dict) -> None:
-    PIPELINE_STATE_FILE.write_text(
-        json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    atomic_write_json(PIPELINE_STATE_FILE, result, expected_type=dict)
 
 
 def render_home() -> str:

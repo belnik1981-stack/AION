@@ -1,28 +1,43 @@
-import json
+import hashlib
 from pathlib import Path
+
+from storage.atomic_json import atomic_write_json, load_json, update_json
 
 ROOT = Path(__file__).resolve().parent.parent
 HISTORY_FILE = ROOT / "knowledge" / "episodic" / "history.json"
 LONG_TERM_FILE = ROOT / "knowledge" / "long_term" / "knowledge.json"
 
 def _load_json(file_path: Path) -> list | dict:
-    if not file_path.exists():
-        return [] if "history" in str(file_path) else {}
-    try:
-        return json.loads(file_path.read_text(encoding="utf-8"))
-    except Exception:
-        return [] if "history" in str(file_path) else {}
+    is_history = file_path == HISTORY_FILE or "history" in file_path.name
+    expected = list if is_history else dict
+    return load_json(file_path, default_factory=expected, expected_type=expected)
 
 def _save_json(file_path: Path, data: list | dict) -> None:
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    file_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    expected = list if isinstance(data, list) else dict
+    atomic_write_json(file_path, data, expected_type=expected)
 
 def add_episodic_event(user_prompt: str, answer: str) -> None:
-    history = _load_json(HISTORY_FILE)
-    if not isinstance(history, list):
-        history = []
-    history.append({"user": user_prompt, "ai": answer})
-    _save_json(HISTORY_FILE, history)
+    fingerprint = hashlib.sha256(
+        f"user:{user_prompt}\nai:{answer}".encode("utf-8")
+    ).hexdigest()
+    def append_if_new(history: list) -> list:
+        for item in history:
+            if not isinstance(item, dict):
+                continue
+            existing = item.get("fingerprint")
+            if existing == fingerprint:
+                return history
+            if existing is None and item.get("user") == user_prompt and item.get("ai") == answer:
+                return history
+        history.append({"user": user_prompt, "ai": answer, "fingerprint": fingerprint})
+        return history
+
+    update_json(
+        HISTORY_FILE,
+        default_factory=list,
+        expected_type=list,
+        updater=append_if_new,
+    )
 
 def get_recent_history(limit: int = 3) -> str:
     history = _load_json(HISTORY_FILE)
@@ -46,11 +61,18 @@ def get_long_term_knowledge() -> str:
     return "\n".join([f"- {fact}" for fact in facts]) if facts else "Уроки отсутствуют."
 
 def add_long_term_lesson(lesson: str) -> None:
-    knowledge = _load_json(LONG_TERM_FILE)
-    if not isinstance(knowledge, dict):
-        knowledge = {}
-    lessons = knowledge.get("learned_lessons", [])
-    if lesson not in lessons:
-        lessons.append(lesson)
-    knowledge["learned_lessons"] = lessons
-    _save_json(LONG_TERM_FILE, knowledge)
+    def append_if_new(knowledge: dict) -> dict:
+        lessons = knowledge.get("learned_lessons", [])
+        if not isinstance(lessons, list):
+            raise TypeError("learned_lessons должен быть списком")
+        if lesson not in lessons:
+            lessons.append(lesson)
+        knowledge["learned_lessons"] = lessons
+        return knowledge
+
+    update_json(
+        LONG_TERM_FILE,
+        default_factory=dict,
+        expected_type=dict,
+        updater=append_if_new,
+    )

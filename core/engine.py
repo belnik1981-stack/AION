@@ -2,26 +2,21 @@
 AION CORE ENGINE
 """
 from __future__ import annotations
-import json
 from datetime import datetime
 from pathlib import Path
 
 from core.llm import ask_llm
 from core.truth import get_execution_limits, get_principles
+from storage.atomic_json import atomic_write_json, load_json
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE_FILE = ROOT / "state.json"
 
 def load_state() -> dict:
-    if not STATE_FILE.exists():
-        return {}
-    try:
-        return json.loads(STATE_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
+    return load_json(STATE_FILE, default_factory=dict, expected_type=dict)
 
 def save_state(state: dict) -> None:
-    STATE_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_json(STATE_FILE, state, expected_type=dict)
 
 def build_prompt(state: dict, user_input: str | None = None) -> str:
     principles = get_principles()

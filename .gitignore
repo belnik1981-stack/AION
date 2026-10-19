@@ -18,6 +18,9 @@ knowledge/adaptive/*.json
 audit/*.jsonl
 trial_output/
 *.bak
+*.tmp
+*.corrupt-*
+*.lock
 
 # Generated local validation reports
 test-reports/

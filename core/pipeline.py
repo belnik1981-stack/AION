@@ -34,6 +34,7 @@ from providers.base import (
 )
 from core.cycle_guard import CycleGuard
 from memory.store import add_episodic_event
+from storage.atomic_json import JsonStorageError
 
 
 MAX_MODELS_PER_RUN = 4
@@ -217,10 +218,15 @@ def _legacy_pipeline(task: str, task_type: str, max_iterations: int, evidence_me
         previous_final = final_answer
         criticism = final_critique
 
+    memory_status = "not_written"
     if accepted and final_answer:
-        add_episodic_event(task, final_answer)
+        try:
+            add_episodic_event(task, final_answer)
+            memory_status = "stored"
+        except JsonStorageError:
+            memory_status = "write_failed"
 
-    return {
+    result = {
         "status": "ok" if accepted else stop_reason,
         "mode": "single_model",
         "task_type": task_type,
@@ -232,8 +238,16 @@ def _legacy_pipeline(task: str, task_type: str, max_iterations: int, evidence_me
         "analysis": analysis,
         "criticism": criticism,
         "final_answer": final_answer,
+        "memory": {"episodic": memory_status},
         "timestamp": datetime.now().isoformat(),
     }
+    if memory_status == "write_failed":
+        result.update({
+            "status": "error",
+            "stage": "memory_persistence",
+            "detail": "Принятый ответ не сохранён: хранилище осталось без изменений.",
+        })
+    return result
 
 
 def _multi_model_pipeline(
@@ -366,10 +380,15 @@ def _multi_model_pipeline(
             stop_reason = "cycle_detected"
             break
 
+    memory_status = "not_written"
     if accepted and final_answer:
-        add_episodic_event(task, final_answer)
+        try:
+            add_episodic_event(task, final_answer)
+            memory_status = "stored"
+        except JsonStorageError:
+            memory_status = "write_failed"
 
-    return {
+    result = {
         "status": "ok" if accepted else stop_reason,
         "mode": "multi_model_role_rotation",
         "task_type": task_type,
@@ -390,8 +409,16 @@ def _multi_model_pipeline(
         "cycle_guard": guard.status(),
         "rounds": round_results,
         "final_answer": final_answer,
+        "memory": {"episodic": memory_status},
         "timestamp": datetime.now().isoformat(),
     }
+    if memory_status == "write_failed":
+        result.update({
+            "status": "error",
+            "stage": "memory_persistence",
+            "detail": "Принятый ответ не сохранён: хранилище осталось без изменений.",
+        })
+    return result
 
 
 def _run_pipeline_with_budget(

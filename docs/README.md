@@ -34,6 +34,7 @@ API-ключ для этих команд не требуется.
 - [ADR-0001: information cleaning v1](architecture/ADR-0001-INFORMATION_CLEANING_TRIAL_V1.md)
 - [ADR-0002: Evidence Objects v2](architecture/ADR-0002-EVIDENCE_OBJECTS_V2.md)
 - [ADR-0003: общий runtime-бюджет](architecture/ADR-0003-GLOBAL_RUNTIME_BUDGET.md)
+- [ADR-0004: crash-safe JSON-хранилища](architecture/ADR-0004-CRASH-SAFE-JSON-STORAGE.md)
 - [Инструкция v2](trials/EVIDENCE_OBJECTS_V2.md)
 - [Source manifest](egde/SOURCE_MANIFEST_2026-09-08.md)
 
