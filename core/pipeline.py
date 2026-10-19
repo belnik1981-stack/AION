@@ -269,7 +269,12 @@ def _multi_model_pipeline(
         }
 
     raw_bundle = "\n\n".join(f"MODEL {m}:\n{a}" for m, a in usable.items())
-    requested_rotations = int(os.getenv("AION_MULTI_TEST_ROUNDS", str(max_iterations)))
+    try:
+        requested_rotations = int(os.getenv("AION_MULTI_TEST_ROUNDS", str(max_iterations)))
+    except (ValueError, TypeError):
+        return {"status": "error", "stage": "model_selection",
+                "detail": "AION_MULTI_TEST_ROUNDS должен быть целым числом в пределах лимита Truth.",
+                "truth_verified": False}
     if not 1 <= requested_rotations <= max_iterations:
         return {"status": "error", "stage": "model_selection",
                 "detail": "AION_MULTI_TEST_ROUNDS должен быть в пределах лимита Truth.",
