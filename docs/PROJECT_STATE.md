@@ -1,7 +1,7 @@
 # PROJECT STATE
 
 Дата актуализации: 2026-10-19
-Проверенный baseline: `master@847d08da95bbe53b8c8caabc31b9c4342586cfab` после PR #21
+Проверенный baseline: `master@842d5f52fcf14ef4e760516612ab6b4135551434` после PR #26
 Текущий этап: полный аудит и последовательное устранение подтверждённых дефектов.
 
 ## 1. Назначение этого файла
@@ -126,7 +126,13 @@ role rotation только при необходимости
 
 **HYPOTHESIS:** экономические и другие стимулы могут систематически влиять не только на формулировку данных, но и на их создание, отбор, публикацию, задержку раскрытия или сокрытие неблагоприятной информации.
 
-**DECISION:** вместо отдельного тяжёлого "антикоммерческого" модуля предпочтительно расширять существующее описание provenance/dependency root минимальными признаками, например:
+**DECISION:** коммерческая зависимость анализируется отдельным параллельным
+view и не изменяет основной доверенный pipeline. Введённые пользователем
+коэффициенты остаются непроверенной гипотезой, а не доказательством причинности.
+
+**DECISION:** для дальнейшей доказательной проверки предпочтительно расширять
+существующее описание provenance/dependency root минимальными признаками,
+например:
 
 - `incentive_type`;
 - `incentive_strength`;
@@ -180,6 +186,10 @@ episodic memory и server state проходят единый bounded redaction;
 model-reported sources, agreement-not-proof, возможными противоречиями,
 divergent/minority claims и analysis-only evidence alignment.
 
+**FACT:** runtime формирует отдельное сравнение claim influence с коммерческим
+слоем и без него; этот слой не меняет базовый registry, итоговый ответ, Truth
+или память и не объявляет коммерческую причинность проверенной.
+
 ## 10. Открытые технические ограничения
 
 - **FACT:** основной pipeline использует единый call budget; повтор после
@@ -187,6 +197,8 @@ divergent/minority claims и analysis-only evidence alignment.
 - **FACT:** provider timeout ограничен оставшимся `timeout_seconds` общего
   монотонного deadline.
 - **OPEN:** нет доверенного внешнего механизма проверки реальной независимости скрытых dependency roots.
+- **OPEN:** значения коммерческих факторов пока задаются пользователем и не
+  подтверждаются независимыми источниками; их причинная связь не доказана.
 - **OPEN:** внешняя подлинность provenance и semantic truth verification остаются нерешёнными.
 - **OPEN:** автоматическое promotion в long-term memory/Truth не разрешено.
 - **FACT:** response-size cap применяется до JSON parsing.
@@ -204,12 +216,15 @@ divergent/minority claims и analysis-only evidence alignment.
 
 Не создавать новый большой слой.
 
-Следующий этап — проверить, какой минимальный объём изменений нужен, чтобы существующие `information_cleaning_v1`, `evidence_objects_v2` и multi-model runtime использовали единое представление противоречий и dependency roots без дублирования логики.
+Следующий этап — закрыть сетевые границы внешнего evidence collector: безопасно
+обрабатывать каждый redirect, DNS/IP и диагностический текст, после чего
+связать проверенный внешний evidence с существующим claim registry без
+дублирования форматов.
 
 После этого отдельно оценить необходимость:
 
-1. claim extraction / matching;
-2. признаков incentive distortion;
+1. semantic claim extraction / matching;
+2. независимо проверяемых признаков incentive distortion;
 3. adaptive escalation по вычислительной нагрузке;
 4. reopen только по существенному новому evidence.
 

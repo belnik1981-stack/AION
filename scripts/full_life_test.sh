@@ -37,6 +37,7 @@ for test_file in \
   tests/harness/test_crash_safe_storage.py \
   tests/harness/test_sensitive_data_redaction.py \
   tests/harness/test_claim_registry.py \
+  tests/harness/test_commercial_parallel_bridge.py \
   tests/harness/test_free_model_catalog_preflight.py \
   tests/harness/test_live_free_pipeline_trial.py \
   tests/harness/test_live_free_multi_model_trial.py \
