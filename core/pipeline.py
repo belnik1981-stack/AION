@@ -340,7 +340,7 @@ def _multi_model_pipeline(
             stop_reason = "cycle_detected"
             break
 
-    if final_answer:
+    if accepted and final_answer:
         add_episodic_event(task, final_answer)
 
     return {
