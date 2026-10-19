@@ -35,6 +35,7 @@ API-ключ для этих команд не требуется.
 - [ADR-0002: Evidence Objects v2](architecture/ADR-0002-EVIDENCE_OBJECTS_V2.md)
 - [ADR-0003: общий runtime-бюджет](architecture/ADR-0003-GLOBAL_RUNTIME_BUDGET.md)
 - [ADR-0004: crash-safe JSON-хранилища](architecture/ADR-0004-CRASH-SAFE-JSON-STORAGE.md)
+- [ADR-0005: границы чувствительных данных](architecture/ADR-0005-SENSITIVE-DATA-BOUNDARIES.md)
 - [Инструкция v2](trials/EVIDENCE_OBJECTS_V2.md)
 - [Source manifest](egde/SOURCE_MANIFEST_2026-09-08.md)
 

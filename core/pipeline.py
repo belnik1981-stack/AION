@@ -35,6 +35,7 @@ from providers.base import (
 from core.cycle_guard import CycleGuard
 from memory.store import add_episodic_event
 from storage.atomic_json import JsonStorageError
+from security.redaction import TextSafetyError, redact_sensitive, redact_structure
 
 
 MAX_MODELS_PER_RUN = 4
@@ -451,7 +452,20 @@ def _run_pipeline_with_budget(
             "evidence": evidence_meta,
         }
 
-    effective_task = _task_with_evidence(task, evidence_text)
+    try:
+        safe_effective_task = redact_sensitive(_task_with_evidence(task, evidence_text))
+    except TextSafetyError:
+        return {
+            "status": "error",
+            "stage": "input_safety",
+            "detail": "Задача с evidence превышает безопасные границы обработки.",
+            "truth_verified": False,
+            "evidence": evidence_meta,
+        }
+    effective_task = safe_effective_task.text
+    if safe_effective_task.count:
+        evidence_meta = dict(evidence_meta)
+        evidence_meta["redactions_applied"] = safe_effective_task.count
 
     if len(models) >= 2:
         return _multi_model_pipeline(
@@ -483,11 +497,38 @@ def run_pipeline(task: str, *, initial_raw_answers: dict | None = None) -> dict:
             "truth_verified": False,
         }
 
+    try:
+        safe_task = redact_sensitive(task)
+        safe_initial, initial_redactions = redact_structure(initial_raw_answers)
+    except (TypeError, TextSafetyError):
+        return {
+            "status": "error",
+            "stage": "input_safety",
+            "detail": "Ввод превышает безопасные границы обработки.",
+            "truth_verified": False,
+            "runtime_budget": budget.snapshot(),
+        }
+
     with use_budget(budget):
         result = _run_pipeline_with_budget(
-            task,
-            initial_raw_answers=initial_raw_answers,
+            safe_task.text,
+            initial_raw_answers=safe_initial,
             max_iterations=max_iterations,
         )
-    result["runtime_budget"] = budget.snapshot()
-    return result
+    try:
+        safe_result, output_redactions = redact_structure(result)
+    except TextSafetyError:
+        safe_result = {
+            "status": "error",
+            "stage": "output_safety",
+            "detail": "Результат превышает безопасные границы обработки.",
+            "truth_verified": False,
+        }
+        output_redactions = 0
+    safe_result["runtime_budget"] = budget.snapshot()
+    safe_result["redaction"] = {
+        "input": safe_task.count,
+        "prepared_answers": initial_redactions,
+        "output": output_redactions,
+    }
+    return safe_result

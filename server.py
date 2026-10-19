@@ -8,6 +8,8 @@ from core.truth import get_execution_limits
 from core.engine import load_state, run_cycle
 from core.pipeline import run_pipeline
 from storage.atomic_json import atomic_write_json, load_json
+from storage.atomic_json import JsonStorageError
+from security.redaction import TextSafetyError, redact_structure
 
 PORT = 8080
 MAX_POST_BYTES = 64_000
@@ -64,13 +66,35 @@ def load_pipeline_state() -> dict:
 
 
 def save_pipeline_state(result: dict) -> None:
-    atomic_write_json(PIPELINE_STATE_FILE, result, expected_type=dict)
+    safe_result, _ = redact_structure(result)
+    atomic_write_json(PIPELINE_STATE_FILE, safe_result, expected_type=dict)
+
+
+def _safe_runtime_error(stage: str) -> dict:
+    return {
+        "status": "error",
+        "stage": stage,
+        "detail": "Операция безопасно остановлена; недоверенные детали скрыты.",
+    }
+
+
+def _safe_display(loader, stage: str) -> dict:
+    try:
+        value = loader()
+        safe, _ = redact_structure(value)
+        return safe
+    except (JsonStorageError, TextSafetyError, TypeError):
+        return _safe_runtime_error(stage)
 
 
 def render_home() -> str:
     limits = json.dumps(get_execution_limits(), indent=2, ensure_ascii=False)
-    state = json.dumps(load_state(), indent=2, ensure_ascii=False)
-    pipeline_state = json.dumps(load_pipeline_state(), indent=2, ensure_ascii=False)
+    state = json.dumps(_safe_display(load_state, "state_load"), indent=2, ensure_ascii=False)
+    pipeline_state = json.dumps(
+        _safe_display(load_pipeline_state, "pipeline_state_load"),
+        indent=2,
+        ensure_ascii=False,
+    )
     return (
         HTML_TEMPLATE
         .replace("{{LIMITS}}", html.escape(limits))
@@ -112,8 +136,8 @@ class AionHandler(BaseHTTPRequestHandler):
             user_prompt = parsed_data.get("user_prompt", [""])[0]
             try:
                 run_cycle(user_prompt if user_prompt.strip() else None)
-            except Exception as exc:
-                print(f"[ERROR] Cycle execution failed: {exc}")
+            except Exception:
+                print("[ERROR] Cycle execution failed; details hidden")
             self.send_response(303)
             self.send_header("Location", "/")
             self.end_headers()
@@ -126,11 +150,17 @@ class AionHandler(BaseHTTPRequestHandler):
             if user_prompt:
                 try:
                     result = run_pipeline(user_prompt)
-                except Exception as exc:
-                    result = {"status": "error", "stage": "server", "detail": str(exc)}
-                save_pipeline_state(result)
+                except Exception:
+                    result = _safe_runtime_error("server")
+                try:
+                    save_pipeline_state(result)
+                except (JsonStorageError, TextSafetyError, TypeError):
+                    print("[ERROR] Pipeline state was not persisted; details hidden")
             else:
-                save_pipeline_state({"status": "error", "detail": "Пустая задача"})
+                try:
+                    save_pipeline_state({"status": "error", "detail": "Пустая задача"})
+                except (JsonStorageError, TextSafetyError, TypeError):
+                    print("[ERROR] Empty-task state was not persisted; details hidden")
             self.send_response(303)
             self.send_header("Location", "/")
             self.end_headers()

@@ -44,6 +44,8 @@ jobs:
         run: PYTHONPATH=. python tests/harness/test_runtime_budget.py
       - name: Verify crash-safe JSON storage without network
         run: PYTHONPATH=. python tests/harness/test_crash_safe_storage.py
+      - name: Verify sensitive data boundaries without network
+        run: PYTHONPATH=. python tests/harness/test_sensitive_data_redaction.py
       - name: Verify two-model comparison and guard regression
         run: PYTHONPATH=. python tests/harness/test_multi_model_runtime_regression.py && PYTHONPATH=. python tests/harness/test_live_free_multi_model_trial.py
       - name: Validate two-model live script syntax
