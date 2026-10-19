@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -74,8 +75,15 @@ def _path_findings(relative: Path) -> list[Finding]:
 def scan_repository(root: str | Path) -> list[Finding]:
     base = Path(root).resolve()
     findings: list[Finding] = []
+    git_root = (base / '.git').exists()
+    tracked = None
+    if git_root:
+        result = subprocess.run(['git', '-C', str(base), 'ls-files', '-z'], capture_output=True, check=True)
+        tracked = {p.decode('utf-8', errors='surrogateescape') for p in result.stdout.split(b'\x00') if p}
     for path in _iter_files(base):
         relative = path.relative_to(base)
+        if tracked is not None and relative.as_posix() not in tracked:
+            continue
         findings.extend(_path_findings(relative))
         size = path.stat().st_size
         if size > MAX_REVIEWED_FILE_BYTES:
