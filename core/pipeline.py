@@ -196,7 +196,7 @@ def _legacy_pipeline(task: str, task_type: str, max_iterations: int, evidence_me
         previous_final = final_answer
         criticism = final_critique
 
-    if final_answer:
+    if accepted and final_answer:
         add_episodic_event(task, final_answer)
 
     return {
