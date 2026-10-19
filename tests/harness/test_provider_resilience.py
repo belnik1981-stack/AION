@@ -100,7 +100,7 @@ assert got.startswith("[ОШИБКА:planner]"), got
 assert len(seen) == 2, seen
 
 got, seen = retry_case([ProviderRateLimitError("HTTP 429")])
-assert "HTTP 429" in got and len(seen) == 1, (got, seen)
+assert got == "[ОШИБКА:planner] provider_rate_limited" and len(seen) == 1, (got, seen)
 
 got, seen = retry_case([ProviderTruncatedError("length")], setting="0")
 assert got.startswith("[ОШИБКА:planner]") and len(seen) == 1, (got, seen)
@@ -213,7 +213,7 @@ answer, requests = verify_critic_retry([
 assert answer.startswith("[ОШИБКА:critic]") and len(requests) == 2, (answer, requests)
 
 answer, requests = verify_critic_retry([ProviderRateLimitError("HTTP 429")])
-assert "HTTP 429" in answer and len(requests) == 1, (answer, requests)
+assert answer == "[ОШИБКА:critic] provider_rate_limited" and len(requests) == 1, (answer, requests)
 
 answer, requests = verify_critic_retry([ProviderTruncatedError("length"), ProviderTruncatedError("length")], ceiling="1800",
                                        retry="1")
