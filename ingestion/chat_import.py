@@ -12,16 +12,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from security.redaction import redact_sensitive
+
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CANDIDATE_STORE = ROOT / "knowledge" / "candidates" / "chat_candidates.jsonl"
-
-_SECRET_PATTERNS = [
-    re.compile(r"\bsk-[A-Za-z0-9_-]{16,}\b"),
-    re.compile(r"\bsk-or-v1-[A-Za-z0-9_-]{16,}\b"),
-    re.compile(r"\bAIza[0-9A-Za-z_-]{20,}\b"),
-    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/-]{16,}=*\b", re.IGNORECASE),
-    re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"),
-]
 
 _ERROR_MARKERS = (
     "[ОШИБКА",
@@ -58,14 +52,8 @@ def _normalise_text(value: Any) -> str:
 
 
 def _redact_secrets(text: str) -> tuple[str, bool]:
-    redacted = text
-    changed = False
-    for pattern in _SECRET_PATTERNS:
-        new_text, count = pattern.subn("[REDACTED_SECRET]", redacted)
-        if count:
-            changed = True
-            redacted = new_text
-    return redacted, changed
+    result = redact_sensitive(text)
+    return result.text, result.count > 0
 
 
 def _message_text(message: dict[str, Any]) -> str:

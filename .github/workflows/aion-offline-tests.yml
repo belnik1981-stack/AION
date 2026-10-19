@@ -83,6 +83,9 @@ jobs:
       - name: Run crash-safe storage fault injection
         run: python tests/harness/test_crash_safe_storage.py
 
+      - name: Run sensitive data boundary regression
+        run: python tests/harness/test_sensitive_data_redaction.py
+
       - name: Verify live free model catalog guard without network
         run: python tests/harness/test_free_model_catalog_preflight.py
 
