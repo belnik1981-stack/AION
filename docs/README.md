@@ -38,6 +38,9 @@ API-ключ для этих команд не требуется.
 - [ADR-0005: границы чувствительных данных](architecture/ADR-0005-SENSITIVE-DATA-BOUNDARIES.md)
 - [ADR-0006: транзакционный promotion](architecture/ADR-0006-TRANSACTIONAL-PROMOTION.md)
 - [ADR-0007: реестр утверждений и разногласий](architecture/ADR-0007-CLAIM-DISAGREEMENT-REGISTRY.md)
+- [ADR-0008: параллельная коммерческая оценка](architecture/ADR-0008-COMMERCIAL-PARALLEL-BRIDGE.md)
+- [ADR-0009: сетевая граница evidence collector](architecture/ADR-0009-EVIDENCE-NETWORK-BOUNDARY.md)
+- [ADR-0010: ограниченный Agents SDK runtime](architecture/ADR-0010-BOUNDED-AGENTS-SDK-RUNTIME.md)
 - [Инструкция v2](trials/EVIDENCE_OBJECTS_V2.md)
 - [Source manifest](egde/SOURCE_MANIFEST_2026-09-08.md)
 
@@ -48,6 +51,7 @@ API-ключ для этих команд не требуется.
 - long-term promotion разрешён только после fresh verification, явного reviewer
   и восстанавливаемой audit-транзакции; внешняя подлинность evidence этим не доказывается;
 - принудительная отмена уже начатого системного сетевого вызова остаётся best-effort;
-- общий runtime-бюджет охватывает основной pipeline, но не отдельный optional Agents SDK runtime;
+- основной pipeline и optional Agents SDK имеют отдельные bounded budgets и
+  пока не делят один общий счётчик между одновременными запусками;
 - актуальное реальное API-испытание требует ключ владельца и доступных бесплатных моделей;
 - merge в `master` требует отдельного решения владельца.
