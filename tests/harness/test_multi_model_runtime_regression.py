@@ -45,6 +45,7 @@ assert ok["raw_answers"]["model-a:free"] != ok["raw_answers"]["model-b:free"], o
 assert ok["rounds"][0]["role_assignment"]["planner"] != ok["rounds"][0]["role_assignment"]["analyst"], ok
 assert calls[:2] == ["model-a:free", "model-b:free"], calls
 assert ok["rotations_used"] == 1, ok
+assert saved == ["synthesizer by model-b:free"], saved
 
 # Losing a model cannot be classified as a successful multi-model consensus.
 provider_failure, _, _ = run_case(
@@ -64,12 +65,13 @@ assert critic_failure["status"] == "error", critic_failure
 assert critic_failure["stage"] == "critic", critic_failure
 
 # Repeated synthesized answer with unverifiable result must stop before max rounds.
-cycle, _, _ = run_case(
+cycle, _, rejected_memory = run_case(
     lambda m: "raw evidence " + m,
     lambda task, answer, model=None: (False, "FAIL: evidence missing"),
     role_fn=lambda role, model: "Same final answer" if role == "synthesizer" else role + " ok",
 )
 assert cycle["status"] == "cycle_detected", cycle
+assert rejected_memory == [], rejected_memory
 assert cycle["rotations_used"] <= 2, cycle
 assert cycle["cycle"]["type"] in {"revisited_state", "direct_repeat"}, cycle
 
@@ -197,5 +199,15 @@ truncated, calls, _ = run_case(
 assert truncated["stage"] == "raw_multi_model"
 assert truncated["raw_diagnostics"]["model-a:free"]["status"] == "truncated"
 assert calls[:2] == ["model-a:free", "model-a:free"] and len(calls) == 3
+
+# Invalid rotation limits fail closed instead of raising.
+for invalid_rounds in ("abc", "1.5", "0", "-1", "999"):
+    with patch.dict(os.environ, {"AION_MULTI_TEST_ROUNDS": invalid_rounds}):
+        invalid, _, memory = run_case(
+            lambda m: "Complete response " + m,
+            lambda task, answer, model=None: (True, "OK"),
+        )
+    assert invalid["status"] == "error" and invalid["stage"] == "model_selection", invalid
+    assert memory == [], memory
 
 print("MULTI MODEL RUNTIME REGRESSION: PASS")
