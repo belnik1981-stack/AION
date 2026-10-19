@@ -78,7 +78,8 @@ FINAL SYNTHESIS WITH UNCERTAINTY
 
 **DECISION:** общий информационный предок нескольких моделей или источников не должен считаться несколькими независимыми подтверждениями.
 
-**OPEN:** ещё нет полноценного автоматического выделения атомарных claims из всех модельных ответов и их семантического сопоставления с evidence.
+**OPEN:** текущие claim extraction, polarity и matching детерминированы, но
+эвристичны; полноценная semantic verification и внешняя проверка URL не выполнены.
 
 ## 5. Рациональное использование вычислений
 
@@ -174,6 +175,10 @@ episodic memory и server state проходят единый bounded redaction;
 **FACT:** verified long-term promotion использует pending memory, два
 идемпотентных audit events и crash-safe transaction journal; direct promotion
 запрещён, а незавершённый claim не виден как learned lesson.
+
+**FACT:** multi-model runtime строит отдельный claim registry с типами,
+model-reported sources, agreement-not-proof, возможными противоречиями,
+divergent/minority claims и analysis-only evidence alignment.
 
 ## 10. Открытые технические ограничения
 

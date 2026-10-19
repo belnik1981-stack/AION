@@ -86,6 +86,9 @@ jobs:
       - name: Run sensitive data boundary regression
         run: python tests/harness/test_sensitive_data_redaction.py
 
+      - name: Run claim and disagreement registry regression
+        run: python tests/harness/test_claim_registry.py
+
       - name: Verify live free model catalog guard without network
         run: python tests/harness/test_free_model_catalog_preflight.py
 
