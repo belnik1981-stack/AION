@@ -15,6 +15,7 @@ from storage.atomic_json import (
     JsonCorruptionError,
     JsonRecoveryWarning,
     atomic_write_json,
+    append_jsonl_record,
     backup_path,
     load_json,
     JsonStorageError,
@@ -116,6 +117,18 @@ with TemporaryDirectory() as temp_dir:
     concurrent_values = load_json(concurrent, default_factory=list, expected_type=list)
     assert sorted(concurrent_values) == list(range(6)), concurrent_values
 
+    # A partial JSONL tail is preserved and blocks later audit appends.
+    audit_log = root / "audit.jsonl"
+    audit_log.write_text('{"event":"valid"}\n{"event":', encoding="utf-8")
+    damaged_audit = audit_log.read_bytes()
+    try:
+        append_jsonl_record(audit_log, {"event": "new"})
+    except JsonCorruptionError:
+        pass
+    else:
+        raise AssertionError("Corrupt audit tail must block append")
+    assert audit_log.read_bytes() == damaged_audit
+
     # Existing AION state consumers use the same storage contract.
     history = root / "history.json"
     knowledge = root / "knowledge.json"
@@ -132,8 +145,16 @@ with TemporaryDirectory() as temp_dir:
         assert len(saved_history) == 1, saved_history
         assert len(saved_history[0]["fingerprint"]) == 64
 
-        store.add_long_term_lesson("verified lesson")
-        store.add_long_term_lesson("verified lesson")
+        try:
+            store.add_long_term_lesson("verified lesson")
+        except store.DirectPromotionBlocked:
+            pass
+        else:
+            raise AssertionError("Direct long-term promotion must be blocked")
+        store.stage_long_term_lesson("verified lesson", "test-promotion")
+        assert store.get_long_term_knowledge() == "Уроки отсутствуют."
+        store.commit_staged_long_term_lesson("verified lesson", "test-promotion")
+        store.commit_staged_long_term_lesson("verified lesson", "test-promotion")
         assert store.get_long_term_knowledge() == "- verified lesson"
 
         engine.save_state({"status": "idle"})

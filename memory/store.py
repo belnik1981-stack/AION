@@ -1,8 +1,17 @@
 import hashlib
+from datetime import datetime, timezone
 from pathlib import Path
 
 from storage.atomic_json import atomic_write_json, load_json, update_json
 from security.redaction import SensitiveDataError, redact_sensitive
+
+
+class DirectPromotionBlocked(PermissionError):
+    """Long-term knowledge may only be committed by verified transaction."""
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 ROOT = Path(__file__).resolve().parent.parent
 HISTORY_FILE = ROOT / "knowledge" / "episodic" / "history.json"
@@ -73,24 +82,74 @@ def get_long_term_knowledge() -> str:
     return "\n".join([f"- {fact}" for fact in safe_facts]) if safe_facts else "Уроки отсутствуют."
 
 def add_long_term_lesson(lesson: str) -> None:
+    raise DirectPromotionBlocked(
+        "Прямая запись long-term knowledge запрещена; используйте verification transaction"
+    )
+
+
+def stage_long_term_lesson(lesson: str, promotion_id: str) -> None:
     safe_lesson = redact_sensitive(lesson)
     if safe_lesson.count:
         raise SensitiveDataError(
             "Long-term promotion заблокирован: обнаружены чувствительные данные"
         )
 
-    def append_if_new(knowledge: dict) -> dict:
+    if not isinstance(promotion_id, str) or not promotion_id.strip():
+        raise ValueError("promotion_id обязателен")
+
+    def stage(knowledge: dict) -> dict:
         lessons = knowledge.get("learned_lessons", [])
         if not isinstance(lessons, list):
             raise TypeError("learned_lessons должен быть списком")
+        pending = knowledge.get("pending_promotions", {})
+        if not isinstance(pending, dict):
+            raise TypeError("pending_promotions должен быть объектом")
+        existing = pending.get(promotion_id)
+        if existing is not None and existing.get("claim") != safe_lesson.text:
+            raise ValueError("promotion_id уже связан с другим утверждением")
         if safe_lesson.text not in lessons:
-            lessons.append(safe_lesson.text)
-        knowledge["learned_lessons"] = lessons
+            pending[promotion_id] = {
+                "claim": safe_lesson.text,
+                "staged_at": _now(),
+            }
+        knowledge["pending_promotions"] = pending
         return knowledge
 
     update_json(
         LONG_TERM_FILE,
         default_factory=dict,
         expected_type=dict,
-        updater=append_if_new,
+        updater=stage,
+    )
+
+
+def commit_staged_long_term_lesson(lesson: str, promotion_id: str) -> None:
+    safe_lesson = redact_sensitive(lesson)
+    if safe_lesson.count:
+        raise SensitiveDataError("Long-term commit заблокирован: обнаружены чувствительные данные")
+
+    def commit(knowledge: dict) -> dict:
+        lessons = knowledge.get("learned_lessons", [])
+        pending = knowledge.get("pending_promotions", {})
+        if not isinstance(lessons, list) or not isinstance(pending, dict):
+            raise TypeError("Некорректная структура long-term knowledge")
+        staged = pending.get(promotion_id)
+        if staged is None:
+            if safe_lesson.text in lessons:
+                return knowledge
+            raise ValueError("Staged promotion не найден")
+        if staged.get("claim") != safe_lesson.text:
+            raise ValueError("Staged promotion не соответствует утверждению")
+        if safe_lesson.text not in lessons:
+            lessons.append(safe_lesson.text)
+        pending.pop(promotion_id, None)
+        knowledge["learned_lessons"] = lessons
+        knowledge["pending_promotions"] = pending
+        return knowledge
+
+    update_json(
+        LONG_TERM_FILE,
+        default_factory=dict,
+        expected_type=dict,
+        updater=commit,
     )
