@@ -20,6 +20,7 @@ from core.agents import planner, analyst, critic, synthesizer, final_critic_chec
 from core.evidence_bridge import EvidenceBridgeError, format_evidence_for_prompt, load_analysis_evidence
 from core.llm import ask_llm
 from core.claim_registry import build_claim_registry, format_registry_for_prompt
+from core.commercial_bridge import parallel_commercial_view
 from core.runtime_budget import (
     ExecutionBudget,
     RuntimeLimitError,
@@ -292,19 +293,24 @@ def _multi_model_pipeline(
             else:
                 raw_answers[model] = "[ОШИБКА:raw] " + attempt["status"]
             if attempt["status"] == "rate_limited":
+                partial_registry = build_claim_registry(
+                    {m: a for m, a in raw_answers.items() if not a.startswith("[ОШИБКА")},
+                    evidence_meta.get("claims", []),
+                )
                 return {
                     "status": "error", "stage": "raw_multi_model",
                     "detail": "HTTP 429: сбор исходных ответов остановлен без дальнейших запросов.",
                     "models": models, "raw_answers": raw_answers,
                     "raw_diagnostics": raw_diagnostics,
-                    "claim_registry": build_claim_registry(
-                        {m: a for m, a in raw_answers.items() if not a.startswith("[ОШИБКА")},
-                        evidence_meta.get("claims", []),
+                    "claim_registry": partial_registry,
+                    "commercial_dependency": parallel_commercial_view(
+                        partial_registry, models
                     ),
                     "evidence": evidence_meta, "truth_verified": False,
                 }
     usable = {m: a for m, a in raw_answers.items() if not a.startswith("[ОШИБКА")}
     claim_registry = build_claim_registry(usable, evidence_meta.get("claims", []))
+    commercial_dependency = parallel_commercial_view(claim_registry, models)
 
     def multi_error(stage: str, detail: str) -> dict:
         return {
@@ -315,6 +321,7 @@ def _multi_model_pipeline(
             "raw_answers": raw_answers,
             "raw_diagnostics": raw_diagnostics,
             "claim_registry": claim_registry,
+            "commercial_dependency": commercial_dependency,
             "evidence": evidence_meta,
             "truth_verified": False,
             "verification_scope": "model_comparison_only",
@@ -431,6 +438,7 @@ def _multi_model_pipeline(
         "raw_answers": raw_answers,
         "raw_diagnostics": raw_diagnostics,
         "claim_registry": claim_registry,
+        "commercial_dependency": commercial_dependency,
         "rotations_planned": rotations,
         "rotations_used": len(round_results),
         "cycle": cycle_info,

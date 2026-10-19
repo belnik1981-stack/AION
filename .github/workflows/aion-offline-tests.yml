@@ -89,6 +89,9 @@ jobs:
       - name: Run claim and disagreement registry regression
         run: python tests/harness/test_claim_registry.py
 
+      - name: Run commercial parallel bridge regression
+        run: python tests/harness/test_commercial_parallel_bridge.py
+
       - name: Verify live free model catalog guard without network
         run: python tests/harness/test_free_model_catalog_preflight.py
 

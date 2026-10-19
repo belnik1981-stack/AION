@@ -48,6 +48,8 @@ jobs:
         run: PYTHONPATH=. python tests/harness/test_sensitive_data_redaction.py
       - name: Verify claim and disagreement registry without network
         run: PYTHONPATH=. python tests/harness/test_claim_registry.py
+      - name: Verify commercial parallel bridge without network
+        run: PYTHONPATH=. python tests/harness/test_commercial_parallel_bridge.py
       - name: Verify two-model comparison and guard regression
         run: PYTHONPATH=. python tests/harness/test_multi_model_runtime_regression.py && PYTHONPATH=. python tests/harness/test_live_free_multi_model_trial.py
       - name: Validate two-model live script syntax
