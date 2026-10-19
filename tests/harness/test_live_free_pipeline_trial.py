@@ -115,12 +115,14 @@ with tempfile.TemporaryDirectory() as directory:
          patch.object(trial, "llm_status", lambda: {"status": "ok", "free_only": True}), \
          patch.object(trial, "ask_llm", lambda *a, **kw: "4"), \
          patch.object(trial, "run_pipeline", unsafe_pipeline), \
-         patch("sys.stdout", new_callable=io.StringIO):
+         patch("sys.stdout", new_callable=io.StringIO), \
+         patch("sys.stderr", new_callable=io.StringIO) as error_output:
         try:
             trial.execute()
         except SystemExit as exc:
             assert exc.code == 3, exc.code
         else:
             raise AssertionError("Truth change did not abort trial")
+    assert "[FAIL] Truth changed during live test" in error_output.getvalue()
 
 print("BOUNDED LIVE FREE PIPELINE REGRESSION: PASS")

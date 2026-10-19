@@ -190,12 +190,14 @@ with tempfile.TemporaryDirectory() as td:
          patch.object(multi, "catalog_candidates", lambda key: [ONE, TWO]), \
          patch.object(multi, "_raw_answer_attempt", lambda task, m: {"status": "ok", "answer": "OK"}), \
          patch.object(multi, "run_pipeline", modify_truth), \
-         patch("sys.stdout", new_callable=io.StringIO):
+         patch("sys.stdout", new_callable=io.StringIO), \
+         patch("sys.stderr", new_callable=io.StringIO) as error_output:
         try:
             multi.execute()
         except SystemExit as exc:
             assert exc.code == 3
         else:
             raise AssertionError("Truth modification must fail closed")
+    assert "[FAIL] Truth modified during multi-model live test." in error_output.getvalue()
 
 print("TWO-MODEL TASK-SPECIFIC RAW REGRESSION: PASS")
