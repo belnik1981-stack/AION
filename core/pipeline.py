@@ -19,6 +19,7 @@ from core.truth import get_execution_limits
 from core.agents import planner, analyst, critic, synthesizer, final_critic_check
 from core.evidence_bridge import EvidenceBridgeError, format_evidence_for_prompt, load_analysis_evidence
 from core.llm import ask_llm
+from core.claim_registry import build_claim_registry, format_registry_for_prompt
 from core.runtime_budget import (
     ExecutionBudget,
     RuntimeLimitError,
@@ -73,16 +74,23 @@ def _evidence_context() -> tuple[str, dict]:
         return "", {"enabled": False}
     try:
         evidence = load_analysis_evidence(path)
-    except Exception as exc:
+    except EvidenceBridgeError:
         return "", {
             "enabled": True,
             "status": "rejected",
-            "detail": str(exc),
+            "detail": "evidence_bundle_rejected",
+        }
+    except Exception:
+        return "", {
+            "enabled": True,
+            "status": "rejected",
+            "detail": "evidence_bundle_unavailable_or_invalid",
         }
     return format_evidence_for_prompt(evidence), {
         "enabled": True,
         "status": evidence["status"],
         "claim_count": evidence["claim_count"],
+        "claims": evidence["claims"],
         "bundle_path": evidence["bundle_path"],
         "execution_authorized": False,
         "truth_update_authorized": False,
@@ -289,32 +297,50 @@ def _multi_model_pipeline(
                     "detail": "HTTP 429: сбор исходных ответов остановлен без дальнейших запросов.",
                     "models": models, "raw_answers": raw_answers,
                     "raw_diagnostics": raw_diagnostics,
+                    "claim_registry": build_claim_registry(
+                        {m: a for m, a in raw_answers.items() if not a.startswith("[ОШИБКА")},
+                        evidence_meta.get("claims", []),
+                    ),
                     "evidence": evidence_meta, "truth_verified": False,
                 }
     usable = {m: a for m, a in raw_answers.items() if not a.startswith("[ОШИБКА")}
-    if len(usable) < 2:
+    claim_registry = build_claim_registry(usable, evidence_meta.get("claims", []))
+
+    def multi_error(stage: str, detail: str) -> dict:
         return {
             "status": "error",
-            "stage": "raw_multi_model",
-            "detail": "Исходный ответ отсутствует или не завершён; подробности в raw_diagnostics.",
+            "stage": stage,
+            "detail": detail,
             "models": models,
             "raw_answers": raw_answers,
             "raw_diagnostics": raw_diagnostics,
+            "claim_registry": claim_registry,
             "evidence": evidence_meta,
             "truth_verified": False,
+            "verification_scope": "model_comparison_only",
         }
 
+    if len(usable) < 2:
+        return multi_error(
+            "raw_multi_model",
+            "Исходный ответ отсутствует или не завершён; подробности в raw_diagnostics.",
+        )
+
     raw_bundle = "\n\n".join(f"MODEL {m}:\n{a}" for m, a in usable.items())
+    comparison_context = format_registry_for_prompt(claim_registry)
+    role_bundle = raw_bundle + "\n\n" + comparison_context
     try:
         requested_rotations = int(os.getenv("AION_MULTI_TEST_ROUNDS", str(max_iterations)))
     except (ValueError, TypeError):
-        return {"status": "error", "stage": "model_selection",
-                "detail": "AION_MULTI_TEST_ROUNDS должен быть целым числом в пределах лимита Truth.",
-                "truth_verified": False}
+        return multi_error(
+            "model_selection",
+            "AION_MULTI_TEST_ROUNDS должен быть целым числом в пределах лимита Truth.",
+        )
     if not 1 <= requested_rotations <= max_iterations:
-        return {"status": "error", "stage": "model_selection",
-                "detail": "AION_MULTI_TEST_ROUNDS должен быть в пределах лимита Truth.",
-                "truth_verified": False}
+        return multi_error(
+            "model_selection",
+            "AION_MULTI_TEST_ROUNDS должен быть в пределах лимита Truth.",
+        )
     rotations = min(len(models), requested_rotations)
     round_results = []
     final_answer = None
@@ -333,24 +359,24 @@ def _multi_model_pipeline(
         }
 
         plan = planner(
-            task + "\n\nНезависимые исходные ответы моделей:\n" + raw_bundle,
+            task + "\n\nНезависимые исходные ответы моделей:\n" + role_bundle,
             model=assignment["planner"],
         )
         if plan.startswith("[ОШИБКА"):
-            return {"status": "error", "stage": "planner", "detail": plan, "evidence": evidence_meta}
+            return multi_error("planner", plan)
         analysis = analyst(
-            task + "\n\nСопоставь независимые ответы и отдели устойчивые совпадения от расхождений:\n" + raw_bundle,
+            task + "\n\nСопоставь независимые ответы и отдели устойчивые совпадения от расхождений:\n" + role_bundle,
             plan,
             model=assignment["analyst"],
         )
         if analysis.startswith("[ОШИБКА"):
-            return {"status": "error", "stage": "analyst", "detail": analysis, "evidence": evidence_meta}
+            return multi_error("analyst", analysis)
         criticism = critic(task, plan, analysis, model=assignment["critic"])
         if criticism.startswith("[ОШИБКА"):
-            return {"status": "error", "stage": "critic", "detail": criticism, "evidence": evidence_meta}
+            return multi_error("critic", criticism)
         final_answer = synthesizer(task, plan, analysis, criticism, model=assignment["synthesizer"])
         if final_answer.startswith("[ОШИБКА"):
-            return {"status": "error", "stage": "synthesizer", "detail": final_answer, "evidence": evidence_meta}
+            return multi_error("synthesizer", final_answer)
         observed = guard.observe("synthesizer", final_answer)
         if observed.cycle_detected:
             cycle_info = {"type": observed.cycle_type, "reason": observed.reason, "round": r + 1}
@@ -358,7 +384,7 @@ def _multi_model_pipeline(
             break
         is_ok, verdict = final_critic_check(task, final_answer, model=assignment["verifier"])
         if verdict.startswith("[ОШИБКА"):
-            return {"status": "error", "stage": "verifier", "detail": verdict, "evidence": evidence_meta}
+            return multi_error("verifier", verdict)
 
         round_results.append({
             "round": r + 1,
@@ -404,6 +430,7 @@ def _multi_model_pipeline(
         "evidence": evidence_meta,
         "raw_answers": raw_answers,
         "raw_diagnostics": raw_diagnostics,
+        "claim_registry": claim_registry,
         "rotations_planned": rotations,
         "rotations_used": len(round_results),
         "cycle": cycle_info,

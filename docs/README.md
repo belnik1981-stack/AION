@@ -37,6 +37,7 @@ API-ключ для этих команд не требуется.
 - [ADR-0004: crash-safe JSON-хранилища](architecture/ADR-0004-CRASH-SAFE-JSON-STORAGE.md)
 - [ADR-0005: границы чувствительных данных](architecture/ADR-0005-SENSITIVE-DATA-BOUNDARIES.md)
 - [ADR-0006: транзакционный promotion](architecture/ADR-0006-TRANSACTIONAL-PROMOTION.md)
+- [ADR-0007: реестр утверждений и разногласий](architecture/ADR-0007-CLAIM-DISAGREEMENT-REGISTRY.md)
 - [Инструкция v2](trials/EVIDENCE_OBJECTS_V2.md)
 - [Source manifest](egde/SOURCE_MANIFEST_2026-09-08.md)
 
