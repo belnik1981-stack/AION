@@ -40,6 +40,8 @@ jobs:
         run: PYTHONPATH=. python tests/harness/test_free_model_catalog_preflight.py
       - name: Test bounded free-model live driver with mocked provider
         run: PYTHONPATH=. python tests/harness/test_live_free_pipeline_trial.py
+      - name: Verify global runtime budget without network
+        run: PYTHONPATH=. python tests/harness/test_runtime_budget.py
       - name: Verify two-model comparison and guard regression
         run: PYTHONPATH=. python tests/harness/test_multi_model_runtime_regression.py && PYTHONPATH=. python tests/harness/test_live_free_multi_model_trial.py
       - name: Validate two-model live script syntax

@@ -6,7 +6,12 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 
 from core import agents
-from providers.base import ProviderError, ProviderRateLimitError, ProviderTruncatedError
+from providers.base import (
+    ProviderError,
+    ProviderRateLimitError,
+    ProviderResponseTooLargeError,
+    ProviderTruncatedError,
+)
 from providers.openai_compatible import OpenAICompatibleProvider
 
 
@@ -46,6 +51,16 @@ with patch.dict(os.environ, {"AION_REASONING_EFFORT": "none"}, clear=False):
         pass
     else:
         raise AssertionError("Empty model content must be rejected")
+
+hostile_empty = response(content="   ", finish_reason="PRIVATE-FINISH-DETAIL")
+hostile_empty["usage"] = {"completion_tokens": "PRIVATE-TOKEN-DETAIL"}
+try:
+    p._extract_content(hostile_empty)
+except ProviderError as exc:
+    assert "PRIVATE" not in str(exc), str(exc)
+    assert "finish_reason=unknown" in str(exc), str(exc)
+else:
+    raise AssertionError("Empty model content must fail safely")
 
     # Upstream errors can contain user IDs, prompts and account metadata.
     marker = "SENSITIVE-UPSTREAM-CONTENT"
@@ -121,8 +136,8 @@ class FakeResponse:
         return self
     def __exit__(self, exc_type, exc, tb):
         return False
-    def read(self):
-        return json.dumps(self.result).encode("utf-8")
+    def read(self, size=-1):
+        return json.dumps(self.result).encode("utf-8")[:size]
 
 
 sent = []
@@ -173,6 +188,42 @@ def check_error400(error_type, expected):
 
 check_error400("invalid_request", "(invalid_request)")
 check_error400("SENSITIVE-PROVIDER-USER-REFERENCE", "(unknown)")
+
+
+# Successful responses are bounded before decoding, and unexpected exception
+# text is never copied into a ProviderError visible to callers.
+class OversizedResponse(FakeResponse):
+    def read(self, size=-1):
+        return b"x" * size
+
+
+with patch.dict(os.environ, {"AION_MAX_RESPONSE_BYTES": "1024"}, clear=False):
+    bounded = provider()
+    with patch("providers.openai_compatible.urlopen", lambda req, timeout: OversizedResponse({})):
+        try:
+            bounded.ask("safe test", max_tokens=128)
+        except ProviderResponseTooLargeError:
+            pass
+        else:
+            raise AssertionError("Oversized provider response must fail closed")
+
+secret_marker = "PRIVATE-EXCEPTION-METADATA"
+with patch("providers.openai_compatible.urlopen", lambda req, timeout: (_ for _ in ()).throw(RuntimeError(secret_marker))):
+    try:
+        provider().ask("safe test", max_tokens=128)
+    except ProviderError as exc:
+        assert secret_marker not in str(exc), str(exc)
+        assert "подробности скрыты" in str(exc), str(exc)
+    else:
+        raise AssertionError("Unexpected transport errors must fail closed")
+
+with patch.dict(os.environ, {"AION_TIMEOUT": "90"}, clear=False):
+    capped_timeout = OpenAICompatibleProvider(
+        api_key="synthetic", model="test-model:free",
+        api_url="https://openrouter.ai/api/v1", free_only=True,
+        timeout_cap=1.5,
+    )
+    assert capped_timeout.timeout == 1.5, capped_timeout.timeout
 
 
 # The live Critic was seen consuming its 450/900 token budgets on a dynamic

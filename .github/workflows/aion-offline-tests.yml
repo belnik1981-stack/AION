@@ -77,6 +77,9 @@ jobs:
       - name: Run provider resilience regression
         run: python tests/harness/test_provider_resilience.py
 
+      - name: Run global runtime budget regression
+        run: python tests/harness/test_runtime_budget.py
+
       - name: Verify live free model catalog guard without network
         run: python tests/harness/test_free_model_catalog_preflight.py
 

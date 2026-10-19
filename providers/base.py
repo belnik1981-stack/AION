@@ -29,6 +29,11 @@ class ProviderRateLimitError(ProviderError):
     pass
 
 
+class ProviderResponseTooLargeError(ProviderError):
+    """Provider response exceeded the configured byte limit."""
+    pass
+
+
 class BaseProvider:
     """Базовый контракт любого LLM-провайдера."""
 

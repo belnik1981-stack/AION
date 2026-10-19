@@ -19,9 +19,24 @@ from core.truth import get_execution_limits
 from core.agents import planner, analyst, critic, synthesizer, final_critic_check
 from core.evidence_bridge import EvidenceBridgeError, format_evidence_for_prompt, load_analysis_evidence
 from core.llm import ask_llm
-from providers.base import ProviderError, ProviderHTTPError, ProviderTruncatedError, ProviderRateLimitError
+from core.runtime_budget import (
+    ExecutionBudget,
+    RuntimeLimitError,
+    configured_call_limit,
+    use_budget,
+)
+from providers.base import (
+    ProviderError,
+    ProviderHTTPError,
+    ProviderRateLimitError,
+    ProviderResponseTooLargeError,
+    ProviderTruncatedError,
+)
 from core.cycle_guard import CycleGuard
 from memory.store import add_episodic_event
+
+
+MAX_MODELS_PER_RUN = 4
 
 
 def router(task: str) -> str:
@@ -117,12 +132,18 @@ def _raw_answer_attempt(task: str, model: str) -> dict:
         if not isinstance(content, str) or not content.strip():
             return {"status": "invalid_response"}
         return {"status": "ok", "answer": content.strip()}
+    except RuntimeLimitError as exc:
+        return {"status": exc.code}
     except ProviderRateLimitError:
         return {"status": "rate_limited", "http_status": 429}
+    except ProviderResponseTooLargeError:
+        return {"status": "response_too_large"}
     except ProviderTruncatedError:
         return {"status": "truncated"}
     except ProviderHTTPError as exc:
-        return {"status": "http_error", "http_status": exc.status_code}
+        status = exc.status_code
+        safe_status = status if type(status) is int and 100 <= status <= 599 else "unknown"
+        return {"status": "http_error", "http_status": safe_status}
     except ProviderError:
         return {"status": "provider_error"}
     except (ValueError, TypeError):
@@ -373,22 +394,24 @@ def _multi_model_pipeline(
     }
 
 
-def run_pipeline(task: str, *, initial_raw_answers: dict | None = None) -> dict:
-    limits = get_execution_limits()
-    max_iterations = int(limits.get("max_iterations", 2))
+def _run_pipeline_with_budget(
+    task: str, *, initial_raw_answers: dict | None, max_iterations: int
+) -> dict:
     task_type = router(task)
     models = _models()
     requested_models = os.getenv("AION_MODELS", "").strip()
     if requested_models:
         submitted = [item.strip() for item in requested_models.split(",")]
-        if (len(submitted) < 2 or any(not item for item in submitted)
+        if (len(submitted) < 2 or len(submitted) > MAX_MODELS_PER_RUN
+                or any(not item for item in submitted)
                 or len(set(submitted)) != len(submitted)
                 or "openrouter/free" in submitted):
             return {
                 "status": "error",
                 "stage": "model_selection",
                 "detail": "Для независимого сравнения нужны минимум две разные "
-                          "явно названные модели; дубликаты и openrouter/free запрещены.",
+                          f"явно названные модели (не более {MAX_MODELS_PER_RUN}); "
+                          "дубликаты и openrouter/free запрещены.",
                 "truth_verified": False,
             }
     evidence_text, evidence_meta = _evidence_context()
@@ -415,3 +438,29 @@ def run_pipeline(task: str, *, initial_raw_answers: dict | None = None) -> dict:
             "truth_verified": False,
         }
     return _legacy_pipeline(effective_task, task_type, max_iterations, evidence_meta)
+
+
+def run_pipeline(task: str, *, initial_raw_answers: dict | None = None) -> dict:
+    limits = get_execution_limits()
+    max_iterations = int(limits.get("max_iterations", 2))
+    try:
+        budget = ExecutionBudget(
+            timeout_seconds=float(limits["timeout_seconds"]),
+            max_calls=configured_call_limit(),
+        )
+    except (KeyError, TypeError, ValueError):
+        return {
+            "status": "error",
+            "stage": "runtime_limits",
+            "detail": "Некорректная конфигурация общего бюджета выполнения.",
+            "truth_verified": False,
+        }
+
+    with use_budget(budget):
+        result = _run_pipeline_with_budget(
+            task,
+            initial_raw_answers=initial_raw_answers,
+            max_iterations=max_iterations,
+        )
+    result["runtime_budget"] = budget.snapshot()
+    return result

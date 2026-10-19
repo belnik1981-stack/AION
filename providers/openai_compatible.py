@@ -14,17 +14,28 @@ import re
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
-from providers.base import BaseProvider, ProviderError, ProviderHTTPError, ProviderTruncatedError, ProviderRateLimitError
+from providers.base import (
+    BaseProvider,
+    ProviderError,
+    ProviderHTTPError,
+    ProviderRateLimitError,
+    ProviderResponseTooLargeError,
+    ProviderTruncatedError,
+)
 
 
 _REASONING_EFFORTS = {"max", "xhigh", "high", "medium", "low", "minimal", "none"}
 _TRUNCATION_REASONS = {"length", "max_tokens", "max_output_tokens"}
+_SAFE_FINISH_REASONS = _TRUNCATION_REASONS | {"stop", "content_filter", "tool_calls", "error"}
 _MODEL_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,126}$")
 _REASONING_DISABLE_FREE_ALLOWLIST = {"x-ai/grok-4-fast:free"}
 _SAFE_ERROR_TYPES = {"invalid_request", "invalid_prompt", "context_length_exceeded",
     "max_tokens_exceeded", "token_limit_exceeded", "not_found", "provider_unavailable",
     "provider_overloaded", "rate_limit_exceeded", "authentication", "timeout",
     "content_policy_violation"}
+_DEFAULT_MAX_RESPONSE_BYTES = 1024 * 1024
+_HARD_MAX_RESPONSE_BYTES = 4 * 1024 * 1024
+_HARD_MAX_PROVIDER_TIMEOUT = 120.0
 
 
 def _env_flag(name: str, default: bool) -> bool:
@@ -45,6 +56,7 @@ class OpenAICompatibleProvider(BaseProvider):
         timeout=30,
         max_tokens=1000,
         free_only=None,
+        timeout_cap=None,
     ):
         self.api_url = (
             api_url
@@ -52,8 +64,30 @@ class OpenAICompatibleProvider(BaseProvider):
         ).rstrip("/")
         self.api_key = api_key or os.getenv("AION_API_KEY", "")
         self.model = model or os.getenv("AION_MODEL", "openrouter/free")
-        self.timeout = int(os.getenv("AION_TIMEOUT", timeout))
+        try:
+            configured_timeout = float(os.getenv("AION_TIMEOUT", timeout))
+        except (TypeError, ValueError) as exc:
+            raise ProviderError("AION_TIMEOUT должен быть числом") from exc
+        if not 0 < configured_timeout <= _HARD_MAX_PROVIDER_TIMEOUT:
+            raise ProviderError("AION_TIMEOUT вне безопасного диапазона")
+        if timeout_cap is not None:
+            try:
+                cap = float(timeout_cap)
+            except (TypeError, ValueError) as exc:
+                raise ProviderError("Некорректный общий deadline") from exc
+            if cap <= 0:
+                raise ProviderError("Общий deadline исчерпан")
+            configured_timeout = min(configured_timeout, cap)
+        self.timeout = configured_timeout
         self.max_tokens = int(os.getenv("AION_MAX_TOKENS", max_tokens))
+        try:
+            self.max_response_bytes = int(os.getenv(
+                "AION_MAX_RESPONSE_BYTES", str(_DEFAULT_MAX_RESPONSE_BYTES)
+            ))
+        except (TypeError, ValueError) as exc:
+            raise ProviderError("AION_MAX_RESPONSE_BYTES должен быть целым числом") from exc
+        if not 1024 <= self.max_response_bytes <= _HARD_MAX_RESPONSE_BYTES:
+            raise ProviderError("AION_MAX_RESPONSE_BYTES вне безопасного диапазона")
 
         if free_only is None:
             default_free_only = "openrouter.ai" in self.api_url.lower()
@@ -124,6 +158,10 @@ class OpenAICompatibleProvider(BaseProvider):
 
         finish_reason = str(choice.get("finish_reason") or "").strip().lower()
         native_finish_reason = str(choice.get("native_finish_reason") or "").strip().lower()
+        safe_finish_reason = finish_reason if finish_reason in _SAFE_FINISH_REASONS else "unknown"
+        safe_native_finish_reason = (
+            native_finish_reason if native_finish_reason in _SAFE_FINISH_REASONS else "unknown"
+        )
         if finish_reason in _TRUNCATION_REASONS or native_finish_reason in _TRUNCATION_REASONS:
             usage = data.get("usage")
             usage = usage if isinstance(usage, dict) else {}
@@ -139,8 +177,8 @@ class OpenAICompatibleProvider(BaseProvider):
                 return value if type(value) is int and 0 <= value <= 10000000 else "unknown"
             raise ProviderTruncatedError(
                 "Ответ модели обрезан по лимиту вывода и не принят как завершённый: "
-                f"finish_reason={choice.get('finish_reason')!r}, "
-                f"native_finish_reason={choice.get('native_finish_reason')!r}, "
+                f"finish_reason={safe_finish_reason}, "
+                f"native_finish_reason={safe_native_finish_reason}, "
                 f"response_model={model_hint}, "
                 f"budget={num_or_unknown(requested_max_tokens)}, "
                 f"completion_tokens={num_or_unknown(usage.get('completion_tokens'))}, "
@@ -149,13 +187,17 @@ class OpenAICompatibleProvider(BaseProvider):
             )
 
         if not isinstance(content, str) or not content.strip():
-            usage = data.get("usage") or {}
-            details = usage.get("completion_tokens_details") or {}
+            usage = data.get("usage")
+            usage = usage if isinstance(usage, dict) else {}
+            details = usage.get("completion_tokens_details")
+            details = details if isinstance(details, dict) else {}
+            def num_or_unknown(value):
+                return value if type(value) is int and 0 <= value <= 10000000 else "unknown"
             raise ProviderError(
                 "Модель вернула пустой content; ответ не принят как успешный. "
-                f"finish_reason={choice.get('finish_reason')!r}, "
-                f"completion_tokens={usage.get('completion_tokens')!r}, "
-                f"reasoning_tokens={details.get('reasoning_tokens')!r}."
+                f"finish_reason={safe_finish_reason}, "
+                f"completion_tokens={num_or_unknown(usage.get('completion_tokens'))}, "
+                f"reasoning_tokens={num_or_unknown(details.get('reasoning_tokens'))}."
             )
 
         return content
@@ -229,7 +271,12 @@ class OpenAICompatibleProvider(BaseProvider):
                 method="POST",
             )
             with urlopen(req, timeout=self.timeout) as response:
-                raw = response.read().decode("utf-8")
+                raw_bytes = response.read(self.max_response_bytes + 1)
+                if len(raw_bytes) > self.max_response_bytes:
+                    raise ProviderResponseTooLargeError(
+                        "Ответ провайдера превышает безопасный лимит размера."
+                    )
+                raw = raw_bytes.decode("utf-8")
                 data = json.loads(raw)
 
             usage = data.get("usage") or {}
@@ -250,8 +297,8 @@ class OpenAICompatibleProvider(BaseProvider):
 
             if self.free_only and cost not in (None, 0, 0.0, "0", "0.0"):
                 raise ProviderError(
-                    f"Провайдер сообщил ненулевую стоимость запроса: {cost}. "
-                    "Ответ заблокирован политикой AION_FREE_ONLY."
+                    "Провайдер сообщил ненулевую стоимость запроса. "
+                    "Ответ заблокирован политикой AION_FREE_ONLY; значение скрыто."
                 )
 
             return self._extract_content(data, requested_max_tokens=request_max_tokens)
@@ -286,4 +333,9 @@ class OpenAICompatibleProvider(BaseProvider):
         except ProviderError:
             raise
         except Exception as e:
-            raise ProviderError(f"Ошибка запроса: {str(e)}") from e
+            # Network, decoder and implementation errors may embed request data,
+            # credentials or upstream account metadata. Preserve the exception
+            # chain for local debugging without serializing its text.
+            raise ProviderError(
+                "Ошибка запроса к провайдеру; подробности скрыты."
+            ) from e
