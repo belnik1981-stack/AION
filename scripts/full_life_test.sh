@@ -47,6 +47,7 @@ for test_file in \
   tests/harness/test_verification_pipeline.py \
   tests/harness/test_verification_integrity.py \
   tests/harness/test_evidence_collector.py \
+  tests/harness/test_evidence_candidate_bundle.py \
   tests/harness/test_adaptive_learning.py \
   tests/harness/test_trust_quarantine.py \
   tests/harness/test_trust_policy_engine.py \

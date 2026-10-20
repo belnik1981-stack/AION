@@ -15,6 +15,7 @@ AION — модульная AI-система, разрабатываемая с
 - `knowledge/truth/` — read-only governance-слой;
 - `trials/information_cleaning_v1/` — детерминированная очистка синтетических records;
 - `trials/evidence_objects_v2/` — offline RawArtifact/EvidenceObject/ClaimObject, integrity/provenance graph и fail-closed gate;
+- `evidence/` — bounded network collector и преобразование его результата только в карантинный Evidence v2 draft;
 - `tests/harness/` — локальные архитектурные и safety-проверки.
 
 Evidence Objects v2 подключаются к runtime только через analysis-only bridge.
@@ -34,6 +35,18 @@ python -m trials.evidence_objects_v2.run_trial --output trial_output/evidence-v2
 
 API-ключ для этих команд не требуется.
 
+Сбор публичных документов в новый карантинный пакет выполняется отдельно:
+
+```bash
+python tools/prepare_evidence_candidate.py \
+  --claim "Проверяемое утверждение" \
+  --url "https://example.org/source" \
+  --output ./private-evidence-candidate
+```
+
+Команда использует сеть, но не LLM/API-ключ. Ожидаемый admission token такого
+пакета — `DENIED`: до независимой смысловой проверки он не входит в runtime.
+
 ## Документы состояния
 
 - [PROJECT_STATE](PROJECT_STATE.md)
@@ -48,6 +61,7 @@ API-ключ для этих команд не требуется.
 - [ADR-0009: сетевая граница evidence collector](architecture/ADR-0009-EVIDENCE-NETWORK-BOUNDARY.md)
 - [ADR-0010: ограниченный Agents SDK runtime](architecture/ADR-0010-BOUNDED-AGENTS-SDK-RUNTIME.md)
 - [ADR-0011: evidence-gated adaptive learning](architecture/ADR-0011-EVIDENCE-GATED-ADAPTIVE-LEARNING.md)
+- [ADR-0012: карантинное преобразование evidence](architecture/ADR-0012-QUARANTINED-EVIDENCE-INGESTION.md)
 - [Инструкция v2](trials/EVIDENCE_OBJECTS_V2.md)
 - [Source manifest](egde/SOURCE_MANIFEST_2026-09-08.md)
 

@@ -79,6 +79,9 @@ jobs:
       - name: Run evidence collector harness
         run: python tests/harness/test_evidence_collector.py
 
+      - name: Run quarantined evidence candidate harness
+        run: python tests/harness/test_evidence_candidate_bundle.py
+
       - name: Run adaptive learning harness
         run: python tests/harness/test_adaptive_learning.py
 
