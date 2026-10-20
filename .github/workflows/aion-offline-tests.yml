@@ -109,6 +109,9 @@ jobs:
       - name: Run crash-safe storage fault injection
         run: python tests/harness/test_crash_safe_storage.py
 
+      - name: Run bounded episodic archive regression
+        run: python tests/harness/test_episodic_memory_archive.py
+
       - name: Run sensitive data boundary regression
         run: python tests/harness/test_sensitive_data_redaction.py
 

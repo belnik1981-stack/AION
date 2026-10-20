@@ -12,6 +12,7 @@ AION — модульная AI-система, разрабатываемая с
 - `core/` — runtime AION, multi-model orchestration и analysis-only bridges;
 - `verification/` — детерминированная оценка evidence и транзакционный promotion;
 - `learning/` — карантин и evidence-gated калибровка надёжности;
+- `memory/` — ограниченное активное окно и crash-safe append-only архив принятых событий;
 - `knowledge/truth/` — read-only governance-слой;
 - `trials/information_cleaning_v1/` — детерминированная очистка синтетических records;
 - `trials/evidence_objects_v2/` — offline RawArtifact/EvidenceObject/ClaimObject, integrity/provenance graph и fail-closed gate;
@@ -62,6 +63,7 @@ python tools/prepare_evidence_candidate.py \
 - [ADR-0010: ограниченный Agents SDK runtime](architecture/ADR-0010-BOUNDED-AGENTS-SDK-RUNTIME.md)
 - [ADR-0011: evidence-gated adaptive learning](architecture/ADR-0011-EVIDENCE-GATED-ADAPTIVE-LEARNING.md)
 - [ADR-0012: карантинное преобразование evidence](architecture/ADR-0012-QUARANTINED-EVIDENCE-INGESTION.md)
+- [ADR-0013: ограниченный эпизодический архив](architecture/ADR-0013-BOUNDED-EPISODIC-ARCHIVE.md)
 - [Инструкция v2](trials/EVIDENCE_OBJECTS_V2.md)
 - [Source manifest](egde/SOURCE_MANIFEST_2026-09-08.md)
 

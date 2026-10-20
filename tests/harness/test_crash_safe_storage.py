@@ -129,6 +129,19 @@ with TemporaryDirectory() as temp_dir:
         raise AssertionError("Corrupt audit tail must block append")
     assert audit_log.read_bytes() == damaged_audit
 
+    # A syntactically complete final record without a newline is still an
+    # interrupted JSONL append: appending directly would concatenate objects.
+    missing_newline = root / "missing-newline.jsonl"
+    missing_newline.write_text('{"event":"complete-but-not-committed"}', encoding="utf-8")
+    original_missing_newline = missing_newline.read_bytes()
+    try:
+        append_jsonl_record(missing_newline, {"event": "new"})
+    except JsonCorruptionError:
+        pass
+    else:
+        raise AssertionError("JSONL tail without newline must block append")
+    assert missing_newline.read_bytes() == original_missing_newline
+
     # Existing AION state consumers use the same storage contract.
     history = root / "history.json"
     knowledge = root / "knowledge.json"
