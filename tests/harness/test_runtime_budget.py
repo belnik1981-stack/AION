@@ -5,7 +5,11 @@ from unittest.mock import patch
 
 from core import llm, pipeline
 from core.runtime_budget import ExecutionBudget, RuntimeLimitError, use_budget
-from providers.base import ProviderHTTPError, ProviderResponseTooLargeError
+from providers.base import (
+    ProviderHTTPError,
+    ProviderRateLimitError,
+    ProviderResponseTooLargeError,
+)
 
 
 now = [100.0]
@@ -103,5 +107,16 @@ assert unsafe_status == {"status": "http_error", "http_status": "unknown"}, unsa
 with patch.object(pipeline, "ask_llm", side_effect=ProviderResponseTooLargeError("hidden")):
     too_large = pipeline._raw_answer_attempt("task", "model-a:free")
 assert too_large == {"status": "response_too_large"}, too_large
+
+with patch.object(pipeline, "ask_llm", side_effect=ProviderRateLimitError(
+    "hidden", scope="upstream_provider", retry_after_seconds=11
+)):
+    rate_limited = pipeline._raw_answer_attempt("task", "model-a:free")
+assert rate_limited == {
+    "status": "rate_limited",
+    "http_status": 429,
+    "rate_limit_scope": "upstream_provider",
+    "retry_after_seconds": 11,
+}, rate_limited
 
 print("[PASS] Global runtime deadline, model and LLM-call budgets fail closed")

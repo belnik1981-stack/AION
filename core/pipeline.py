@@ -155,8 +155,15 @@ def _raw_answer_attempt(task: str, model: str) -> dict:
         return {"status": "ok", "answer": content.strip()}
     except RuntimeLimitError as exc:
         return {"status": exc.code}
-    except ProviderRateLimitError:
-        return {"status": "rate_limited", "http_status": 429}
+    except ProviderRateLimitError as exc:
+        outcome = {
+            "status": "rate_limited",
+            "http_status": 429,
+            "rate_limit_scope": exc.scope,
+        }
+        if exc.retry_after_seconds is not None:
+            outcome["retry_after_seconds"] = exc.retry_after_seconds
+        return outcome
     except ProviderResponseTooLargeError:
         return {"status": "response_too_large"}
     except ProviderTruncatedError:

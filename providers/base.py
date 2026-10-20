@@ -25,8 +25,29 @@ class ProviderTruncatedError(ProviderError):
 
 
 class ProviderRateLimitError(ProviderError):
-    """Provider rejected a request for quota/rate reasons; do not retry automatically."""
-    pass
+    """Typed 429 with only sanitized routing information.
+
+    ``scope`` deliberately has three values.  A platform/account limit must
+    stop all further calls, an upstream-provider limit may allow a bounded
+    switch to a different model, and an unknown limit fails closed.
+    """
+
+    SAFE_SCOPES = frozenset({"platform", "upstream_provider", "unknown"})
+
+    def __init__(
+        self,
+        detail: str,
+        *,
+        scope: str = "unknown",
+        retry_after_seconds: int | None = None,
+    ):
+        super().__init__(detail)
+        self.scope = scope if scope in self.SAFE_SCOPES else "unknown"
+        self.retry_after_seconds = (
+            retry_after_seconds
+            if type(retry_after_seconds) is int and 0 < retry_after_seconds <= 86400
+            else None
+        )
 
 
 class ProviderResponseTooLargeError(ProviderError):

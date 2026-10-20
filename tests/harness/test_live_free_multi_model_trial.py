@@ -14,7 +14,7 @@ FOUR = "fourth-org/fourth-test:free"
 FIVE = "fifth-org/fifth-test:free"
 FREE = [TWO, ONE, THREE, FOUR, FIVE]
 
-assert multi._candidate_models(FREE) == [ONE, TWO, THREE, FOUR, FIVE]
+assert multi._candidate_models(FREE) == [TWO, ONE, THREE, FOUR, FIVE]
 assert multi._candidate_models(FREE, requested=TWO + "," + ONE) == [TWO, ONE]
 for invalid in (
     ONE, ONE + "," + ONE, "openrouter/free," + TWO,
@@ -55,11 +55,53 @@ answers, calls, log = collect({
     TWO: {"status": "rate_limited", "http_status": 429},
 })
 assert answers is None and calls == [TWO] and "HTTP 429" in log
+assert "[RATE LIMIT SCOPE] unknown" in log
+
+# A provider-specific 429 may skip only that model during automatic discovery.
+# The failed model itself is never retried, and different authors are retained.
+answers, calls, log = collect({
+    TWO: {
+        "status": "rate_limited", "http_status": 429,
+        "rate_limit_scope": "upstream_provider", "retry_after_seconds": 9,
+    },
+    ONE: {"status": "ok", "answer": "First independent response"},
+    THREE: {"status": "ok", "answer": "Second independent response"},
+})
+assert list(answers) == [ONE, THREE], (answers, calls, log)
+assert calls == [TWO, ONE, THREE], calls
+assert "[FALLBACK]" in log and "[RETRY AFTER] 9 seconds" in log
+
+# Account/platform limits and ambiguous 429s stop every further model call.
+answers, calls, log = collect({
+    TWO: {
+        "status": "rate_limited", "http_status": 429,
+        "rate_limit_scope": "platform",
+    },
+    ONE: {"status": "ok", "answer": "must not be called"},
+})
+assert answers is None and calls == [TWO], (calls, log)
+
+# An explicitly requested pair is an exact contract and is never substituted.
+answers, calls, log = collect({
+    TWO: {
+        "status": "rate_limited", "http_status": 429,
+        "rate_limit_scope": "upstream_provider",
+    },
+    ONE: {"status": "ok", "answer": "must not be called"},
+}, candidates=[TWO, ONE], explicit=True)
+assert answers is None and calls == [TWO], (calls, log)
 
 answers, calls, log = collect({
     TWO: {"status": "http_error", "http_status": 401},
 })
 assert answers is None and calls == [TWO]
+
+answers, calls, log = collect({
+    TWO: {"status": "provider_error"},
+    ONE: {"status": "ok", "answer": "Valid"},
+    THREE: {"status": "ok", "answer": "Valid 2"},
+})
+assert list(answers) == [ONE, THREE] and calls == [TWO, ONE, THREE]
 
 answers, calls, log = collect({
     TWO: {"status": "truncated"},

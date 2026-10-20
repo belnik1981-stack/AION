@@ -36,6 +36,11 @@ _SAFE_ERROR_TYPES = {"invalid_request", "invalid_prompt", "context_length_exceed
 _DEFAULT_MAX_RESPONSE_BYTES = 1024 * 1024
 _HARD_MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 _HARD_MAX_PROVIDER_TIMEOUT = 120.0
+_RATE_LIMIT_HEADERS = (
+    "X-RateLimit-Limit",
+    "X-RateLimit-Remaining",
+    "X-RateLimit-Reset",
+)
 
 
 def _env_flag(name: str, default: bool) -> bool:
@@ -146,6 +151,51 @@ class OpenAICompatibleProvider(BaseProvider):
             return value if isinstance(value, str) and value in _SAFE_ERROR_TYPES else "unknown"
         except (ValueError, TypeError, UnicodeError, OSError):
             return "unknown"
+
+    @staticmethod
+    def _rate_limit_details(error: HTTPError) -> tuple[str, int | None]:
+        """Classify a 429 without exposing its body or account metadata.
+
+        OpenRouter documents ``X-RateLimit-*`` on its own platform limits and
+        ``metadata.provider_code`` on upstream-provider limits when available.
+        Absence of both signals is intentionally ``unknown`` and must stop the
+        trial rather than guessing that another request is safe.
+        """
+        headers = error.headers
+        platform_header = bool(
+            headers and any(headers.get(name) is not None for name in _RATE_LIMIT_HEADERS)
+        )
+        retry_after = None
+        if headers:
+            raw_retry = headers.get("Retry-After")
+            try:
+                parsed_retry = int(raw_retry) if raw_retry is not None else None
+            except (TypeError, ValueError):
+                parsed_retry = None
+            if type(parsed_retry) is int and 0 < parsed_retry <= 86400:
+                retry_after = parsed_retry
+
+        provider_marker = False
+        openrouter_marker = False
+        try:
+            payload = json.loads(error.read(4096).decode("utf-8"))
+            error_info = payload.get("error") if isinstance(payload, dict) else None
+            metadata = error_info.get("metadata") if isinstance(error_info, dict) else None
+            if isinstance(metadata, dict):
+                provider_marker = "provider_code" in metadata
+                limit_source = metadata.get("limit_source")
+                openrouter_marker = (
+                    isinstance(limit_source, str)
+                    and limit_source.startswith("openrouter_")
+                )
+        except (ValueError, TypeError, UnicodeError, OSError):
+            pass
+
+        if platform_header or openrouter_marker:
+            return "platform", retry_after
+        if provider_marker:
+            return "upstream_provider", retry_after
+        return "unknown", retry_after
 
     @staticmethod
     def _extract_content(data: dict, requested_max_tokens: int | None = None) -> str:
@@ -307,13 +357,16 @@ class OpenAICompatibleProvider(BaseProvider):
             # Do not log the upstream response: it can contain account IDs,
             # request excerpts or provider-specific personal metadata.
             if e.code == 429:
+                scope, retry_after = self._rate_limit_details(e)
                 raise ProviderRateLimitError(
-                    "HTTP 429: бесплатный провайдер ограничил частоту запросов. "
-                    "Автоматические повторы отключены; повторите позднее или "
-                    "выберите другую доступную бесплатную модель (:free)."
+                    "HTTP 429: запрос ограничен по частоте или квоте; "
+                    "повтор той же модели отключен.",
+                    scope=scope,
+                    retry_after_seconds=retry_after,
                 ) from e
             if e.code in (401, 403):
-                raise ProviderError(
+                raise ProviderHTTPError(
+                    e.code,
                     f"HTTP {e.code}: проверьте ключ и доступ к выбранной модели. "
                     "Ответ провайдера скрыт во избежание утечки данных."
                 ) from e

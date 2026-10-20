@@ -12,8 +12,14 @@ from tools.live_free_pipeline_trial import _hash_truth
 from tools.select_free_openrouter_model import catalog_candidates
 
 
-MAX_PREFLIGHT_CANDIDATES = 5
-PREFLIGHT_RECOVERABLE = frozenset({400, 404, 502, 503})
+MAX_PREFLIGHT_CANDIDATES = 8
+PREFLIGHT_RECOVERABLE_HTTP = frozenset({400, 404, 500, 502, 503, 504})
+PREFLIGHT_RECOVERABLE_STATES = frozenset({
+    "invalid_response",
+    "provider_error",
+    "response_too_large",
+    "truncated",
+})
 TEST_TASK = (
     "Сравни два объяснения и сохрани неопределённость: "
     "почему наблюдаемое совпадение само по себе не доказывает причинную связь?"
@@ -40,10 +46,10 @@ def _candidate_models(catalog, requested=None):
             raise ValueError("At least one requested model fails current free-model catalog eligibility")
         return named
 
-    # Use prior successful live ID if still eligible, not regardless of catalog.
-    known_success = "dots-studio/dots-3-note-preview:free"
-    ordering = [known_success] + [m for m in catalog if m != known_success] if known_success in catalog else list(catalog)
-    return ordering[:MAX_PREFLIGHT_CANDIDATES]
+    # Current authenticated catalog order already prefers usable non-mandatory
+    # reasoning models.  Do not pin a once-successful model forever: live
+    # availability changes and less-known eligible alternatives are valid.
+    return list(catalog)[:MAX_PREFLIGHT_CANDIDATES]
 
 
 def _collect_two_raw_answers(candidates, explicit=False, attempt=None):
@@ -80,13 +86,25 @@ def _collect_two_raw_answers(candidates, explicit=False, attempt=None):
               "HTTP " + str(status_code) if type(status_code) is int else "",
               flush=True)
         if state == "rate_limited" or status_code == 429:
+            scope = outcome.get("rate_limit_scope", "unknown")
+            retry_after = outcome.get("retry_after_seconds")
+            print("[RATE LIMIT SCOPE]", scope, flush=True)
+            if type(retry_after) is int:
+                print("[RETRY AFTER]", retry_after, "seconds", flush=True)
+            if scope == "upstream_provider" and not explicit:
+                print(
+                    "[FALLBACK] Upstream provider is limited; trying a different "
+                    "free model without retrying the failed model.",
+                    flush=True,
+                )
+                continue
             print("[FAIL] HTTP 429: no further model requests.", flush=True)
             return None
         if explicit:
             return None
-        if state == "truncated":
+        if state in PREFLIGHT_RECOVERABLE_STATES:
             continue
-        if state == "http_error" and status_code in PREFLIGHT_RECOVERABLE:
+        if state == "http_error" and status_code in PREFLIGHT_RECOVERABLE_HTTP:
             continue
         # Access, policy, billing, unknown errors must not trigger retries.
         return None
