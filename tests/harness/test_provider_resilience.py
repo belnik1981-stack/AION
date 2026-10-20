@@ -8,6 +8,7 @@ from urllib.error import HTTPError
 from core import agents
 from providers.base import (
     ProviderError,
+    ProviderHTTPError,
     ProviderRateLimitError,
     ProviderResponseTooLargeError,
     ProviderTruncatedError,
@@ -73,9 +74,67 @@ else:
         except ProviderRateLimitError as exc:
             assert "HTTP 429" in str(exc)
             assert marker not in str(exc), str(exc)
-            assert "позднее" in str(exc)
+            assert exc.scope == "unknown", exc.scope
+            assert exc.retry_after_seconds is None
         else:
             raise AssertionError("HTTP 429 must fail closed")
+
+    provider_limited = json.dumps({
+        "error": {"message": marker, "metadata": {
+            "error_type": "rate_limit_exceeded",
+            "provider_code": 429,
+            "provider_name": marker,
+        }}
+    })
+    def upstream_429(req, timeout):
+        raise HTTPError(
+            req.full_url, 429, "Too Many Requests", {"Retry-After": "7"},
+            io.BytesIO(provider_limited.encode()),
+        )
+    with patch("providers.openai_compatible.urlopen", upstream_429):
+        try:
+            p.ask("2+2", max_tokens=128)
+        except ProviderRateLimitError as exc:
+            assert exc.scope == "upstream_provider", exc.scope
+            assert exc.retry_after_seconds == 7
+            assert marker not in str(exc)
+        else:
+            raise AssertionError("Provider 429 must stay typed")
+
+    platform_limited = json.dumps({
+        "error": {"message": marker, "metadata": {
+            "error_type": "rate_limit_exceeded",
+        }}
+    })
+    def platform_429(req, timeout):
+        raise HTTPError(
+            req.full_url, 429, "Too Many Requests",
+            {"X-RateLimit-Remaining": "0", "Retry-After": "60"},
+            io.BytesIO(platform_limited.encode()),
+        )
+    with patch("providers.openai_compatible.urlopen", platform_429):
+        try:
+            p.ask("2+2", max_tokens=128)
+        except ProviderRateLimitError as exc:
+            assert exc.scope == "platform", exc.scope
+            assert exc.retry_after_seconds == 60
+            assert marker not in str(exc)
+        else:
+            raise AssertionError("Platform 429 must stop globally")
+
+    def unauthorized(req, timeout):
+        raise HTTPError(
+            req.full_url, 401, "Unauthorized", {},
+            io.BytesIO(json.dumps({"error": {"message": marker}}).encode()),
+        )
+    with patch("providers.openai_compatible.urlopen", unauthorized):
+        try:
+            p.ask("2+2", max_tokens=128)
+        except ProviderHTTPError as exc:
+            assert exc.status_code == 401
+            assert marker not in str(exc)
+        else:
+            raise AssertionError("Unauthorized response must be typed")
     # The free-only guard must still reject paid model IDs.
     with patch.dict(os.environ, {"AION_MODEL": "test-model-paid"}):
         paid = OpenAICompatibleProvider(api_key="fixture", model="model-paid", free_only=True)
@@ -229,6 +288,7 @@ with patch.dict(os.environ, {"AION_TIMEOUT": "90"}, clear=False):
 # The live Critic was seen consuming its 450/900 token budgets on a dynamic
 # free-router reasoning model. Verify the fixed bounded per-role configuration.
 with patch.dict(os.environ, {}, clear=True):
+    assert agents.ROLE_BUDGETS["planner"]() == 1600
     assert agents.ROLE_BUDGETS["critic"]() == 1600
     assert agents.ROLE_BUDGETS["verifier"]() == 1200
     assert agents.ROLE_BUDGETS["synthesizer"]() == 1400

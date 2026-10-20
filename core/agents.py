@@ -65,7 +65,11 @@ def _budget(name: str, default: int) -> int:
 
 
 ROLE_BUDGETS = {
-    "planner": lambda: _budget("AION_PLANNER_TOKENS", 512),
+    # A live free reasoning model exhausted 512 and the single 1024-token
+    # retry before producing Planner content.  The catalog gate already
+    # requires >=3200 completion tokens, so start at 1600 and retain one
+    # bounded retry up to the immutable per-role ceiling.
+    "planner": lambda: _budget("AION_PLANNER_TOKENS", 1600),
     "analyst": lambda: _budget("AION_ANALYST_TOKENS", 900),
     "critic": lambda: _budget("AION_CRITIC_TOKENS", 1600),
     "verifier": lambda: _budget("AION_FINAL_CRITIC_TOKENS", 1200),
