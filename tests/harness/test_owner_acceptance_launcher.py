@@ -1,0 +1,142 @@
+"""Exercise the owner launcher without network, API calls, or project memory."""
+
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+
+
+ROOT = Path(__file__).resolve().parents[2]
+LAUNCHER = ROOT / "scripts" / "owner_acceptance_test.sh"
+
+
+def run(*args: str, cwd: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", *args],
+        cwd=cwd,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=30,
+        check=False,
+    )
+
+
+syntax = subprocess.run(
+    ["bash", "-n", str(LAUNCHER)],
+    text=True,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    check=False,
+)
+assert syntax.returncode == 0, syntax.stdout
+
+help_result = run(str(LAUNCHER), "--help", cwd=ROOT, env=os.environ.copy())
+assert help_result.returncode == 0, help_result.stdout
+assert "--local-revision" in help_result.stdout
+assert "--live" in help_result.stdout
+
+with tempfile.TemporaryDirectory() as temp_dir:
+    base = Path(temp_dir)
+    project = base / "project"
+    (project / "scripts").mkdir(parents=True)
+    (project / "knowledge" / "truth").mkdir(parents=True)
+    (project / "knowledge" / "episodic").mkdir(parents=True)
+    shutil.copy2(LAUNCHER, project / "scripts" / LAUNCHER.name)
+    (project / "scripts" / "cloud_check.sh").write_text(
+        "#!/usr/bin/env bash\nset -eu\necho '[PASS] OFFLINE LIFE TRIAL'\n",
+        encoding="utf-8",
+    )
+    (project / "knowledge" / "truth" / "truth.json").write_text(
+        '{"principles": ["test-only"]}\n', encoding="utf-8"
+    )
+    (project / "knowledge" / "truth" / "system.yaml").write_text(
+        "limits:\n  max_iterations: 1\n", encoding="utf-8"
+    )
+    memory = project / "knowledge" / "episodic" / "history.json"
+    memory.write_text('[{"user": "kept", "ai": "kept"}]\n', encoding="utf-8")
+    subprocess.run(["git", "init", "-q", "-b", "test-branch"], cwd=project, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=project, check=True)
+    subprocess.run(["git", "config", "user.name", "AION Test"], cwd=project, check=True)
+    subprocess.run(["git", "add", "."], cwd=project, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "fixture"], cwd=project, check=True)
+
+    report_dir = base / "reports"
+    temp_root = base / "temporary"
+    temp_root.mkdir()
+    env = os.environ.copy()
+    env.update(
+        {
+            "AION_TEST_REPORT_DIR": str(report_dir),
+            "AION_ACCEPTANCE_VENV_DIR": str(base / "venv-outside-project"),
+            "TMPDIR": str(temp_root),
+        }
+    )
+    before = memory.read_bytes()
+    accepted = run(
+        "scripts/owner_acceptance_test.sh",
+        "--local-revision",
+        cwd=project,
+        env=env,
+    )
+    assert accepted.returncode == 0, accepted.stdout
+    assert "[ACCEPTANCE PASS]" in accepted.stdout
+    assert "live=SKIP" in accepted.stdout
+    assert "Primary runtime and memory unchanged" in accepted.stdout
+    assert memory.read_bytes() == before
+    assert list(report_dir.glob("owner-acceptance-*.json"))
+    assert not list(temp_root.glob("aion-owner-acceptance.*"))
+
+    protected_report_env = dict(env)
+    protected_report_env["AION_TEST_REPORT_DIR"] = str(
+        project / "knowledge" / "episodic" / "reports"
+    )
+    protected_report = run(
+        "scripts/owner_acceptance_test.sh",
+        "--local-revision",
+        cwd=project,
+        env=protected_report_env,
+    )
+    assert protected_report.returncode != 0
+    assert "Report directory overlaps protected project data" in protected_report.stdout
+    assert memory.read_bytes() == before
+
+    protected_tmp_env = dict(env)
+    protected_tmp_env["TMPDIR"] = str(project / "temporary")
+    protected_tmp = run(
+        "scripts/owner_acceptance_test.sh",
+        "--local-revision",
+        cwd=project,
+        env=protected_tmp_env,
+    )
+    assert protected_tmp.returncode != 0
+    assert "TMPDIR must be outside the repository" in protected_tmp.stdout
+    assert memory.read_bytes() == before
+
+    release_wrong_branch = run(
+        "scripts/owner_acceptance_test.sh",
+        cwd=project,
+        env=env,
+    )
+    assert release_wrong_branch.returncode != 0
+    assert "Release acceptance requires branch master" in release_wrong_branch.stdout
+    assert memory.read_bytes() == before
+
+    live_without_key_env = dict(env)
+    live_without_key_env.pop("AION_API_KEY", None)
+    live_without_key = run(
+        "scripts/owner_acceptance_test.sh",
+        "--local-revision",
+        "--live",
+        cwd=project,
+        env=live_without_key_env,
+    )
+    assert live_without_key.returncode != 0
+    assert "--live requires AION_API_KEY" in live_without_key.stdout
+    assert memory.read_bytes() == before
+    assert not list(temp_root.glob("aion-owner-acceptance.*"))
+
+
+print("OWNER ACCEPTANCE LAUNCHER: PASS")

@@ -9,17 +9,29 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || {
 }
 cd "$ROOT"
 
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "[FAIL] Python 3 is missing. On Ubuntu/Debian install python3 and python3-venv." >&2
+if [[ -n "${AION_BOOTSTRAP_PYTHON:-}" ]]; then
+  BOOTSTRAP_PYTHON="$AION_BOOTSTRAP_PYTHON"
+elif command -v python3 >/dev/null 2>&1; then
+  BOOTSTRAP_PYTHON="$(command -v python3)"
+elif command -v python >/dev/null 2>&1; then
+  BOOTSTRAP_PYTHON="$(command -v python)"
+else
+  echo "[FAIL] Python 3 is missing. Install Python 3.10+ and venv support." >&2
   exit 2
 fi
+
+"$BOOTSTRAP_PYTHON" - <<'PY'
+import sys
+if sys.version_info < (3, 10):
+    raise SystemExit("[FAIL] AION requires Python 3.10+")
+PY
 
 # Keep the environment outside the repository so hygiene checks scan only source.
 VENV_ROOT="${AION_TEST_VENV_DIR:-${HOME}/.cache/aion-cloud-check-venv}"
 if [[ ! -x "$VENV_ROOT/bin/python" ]]; then
   mkdir -p "$(dirname "$VENV_ROOT")"
-  python3 -m venv "$VENV_ROOT" || {
-    echo "[FAIL] Could not create venv. On Ubuntu/Debian: sudo apt install python3-venv" >&2
+  "$BOOTSTRAP_PYTHON" -m venv "$VENV_ROOT" || {
+    echo "[FAIL] Could not create venv. On Ubuntu/Debian install python3-venv." >&2
     exit 2
   }
 fi
