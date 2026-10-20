@@ -19,6 +19,8 @@ AION — модульная AI-система, разрабатываемая с
 
 Evidence Objects v2 подключаются к runtime только через analysis-only bridge.
 Он не разрешает execution, Truth update или автоматический memory promotion.
+Claim registry принимает только целостный process-sealed контекст bridge, а не
+произвольный список claims; seal не заменяет внешнюю проверку источника.
 Детерминированные offline trials сами не вызывают provider или сеть.
 
 ## Проверка v2

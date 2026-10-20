@@ -10,6 +10,10 @@ import hashlib
 import re
 from typing import Any
 
+from core.evidence_bridge import (
+    EvidenceBridgeError,
+    revalidate_analysis_evidence_context,
+)
 from learning.quarantine import assess_quarantine
 
 
@@ -32,6 +36,10 @@ _UNCERTAINTY_MARKERS = (
     "unknown", "uncertain", "cannot verify", "not enough evidence",
     "неизвест", "неопредел", "невозможно проверить", "недостаточно доказательств",
 )
+
+
+class ClaimRegistryEvidenceError(ValueError):
+    """Unvalidated evidence attempted to enter the claim registry."""
 
 
 def _tokens(text: str, *, remove_negation: bool = False) -> set[str]:
@@ -142,8 +150,18 @@ def _components(observations: list[dict[str, Any]], pairs: list[tuple[int, int]]
 
 def build_claim_registry(
     model_answers: dict[str, str],
-    evidence_claims: list[dict[str, Any]] | None = None,
+    evidence_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    validated_context: dict[str, Any] | None = None
+    if evidence_context is not None:
+        try:
+            validated_context = revalidate_analysis_evidence_context(evidence_context)
+        except EvidenceBridgeError:
+            raise ClaimRegistryEvidenceError("evidence_context_rejected") from None
+    evidence_claims = (
+        validated_context["claims"] if validated_context is not None else []
+    )
+
     observations: list[dict[str, Any]] = []
     for model_id, answer in model_answers.items():
         if not isinstance(answer, str) or not answer.strip() or answer.startswith("[ОШИБКА"):
@@ -188,7 +206,6 @@ def build_claim_registry(
             "objective_truth_verified": False,
         })
 
-    evidence_claims = evidence_claims or []
     evidence_alignments: list[dict[str, Any]] = []
     for observation in observations:
         for evidence in evidence_claims:
@@ -205,6 +222,9 @@ def build_claim_registry(
                 "relation": "aligned" if same_polarity else "contradicts",
                 "similarity": round(base_similarity, 4),
                 "evidence_scope": "validated_bundle_analysis_only",
+                "qualified_support_roots": list(
+                    evidence.get("qualified_support_roots", [])
+                ),
                 "objective_truth_verified": False,
             })
 
@@ -228,6 +248,17 @@ def build_claim_registry(
             ),
             "objective_truth_verified": False,
             "external_verification_performed": False,
+            "evidence_context_integrity_verified": validated_context is not None,
+            "evidence_context_digest": (
+                validated_context["context_digest"]
+                if validated_context is not None
+                else None
+            ),
+            "evidence_bundle_digest": (
+                validated_context["bundle_digest"]
+                if validated_context is not None
+                else None
+            ),
             "note": "Agreement is preserved as an observation, not accepted as proof.",
         },
     }
