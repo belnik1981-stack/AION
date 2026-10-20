@@ -63,6 +63,7 @@ python tools/prepare_evidence_candidate.py \
 ## Документы состояния
 
 - [Архитектура и QA испытательного образца](TEST_SPECIMEN.md)
+- [Итоговый аудит испытательного образца](../reports/AION_TEST_SPECIMEN_AUDIT_2026-10-20.md)
 - [PROJECT_STATE](PROJECT_STATE.md)
 - [ADR-0001: information cleaning v1](architecture/ADR-0001-INFORMATION_CLEANING_TRIAL_V1.md)
 - [ADR-0002: Evidence Objects v2](architecture/ADR-0002-EVIDENCE_OBJECTS_V2.md)

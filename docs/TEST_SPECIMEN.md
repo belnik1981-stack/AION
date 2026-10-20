@@ -29,7 +29,7 @@
 | `commercial_dependency/` | Параллельная гипотеза о влиянии стимулов | claim registry | Не изменяет доверенный итог |
 | `memory/` | Активное окно и архив принятых событий | `storage/atomic_json.py` | Локальные приватные данные, `0600`, не Git |
 | `knowledge/truth/` | Неизменяемые принципы и пределы | `core/truth.py` | Только чтение во время runtime/tests |
-| `server.py` | Локальная web‑панель | engine, pipeline, storage | Только `127.0.0.1`; нет внешней auth |
+| `server.py` | Локальная web‑панель | engine, pipeline, storage | Только `127.0.0.1`; нет внешней auth; HTTP smoke offline |
 | `scripts/owner_acceptance_test.sh` | Приёмка точного commit в изоляции | Git, Bash, Python 3.10+ | Отчёт; основную память не открывает для записи |
 
 Главные входы:
@@ -88,7 +88,7 @@ life trial. Это не доказательство их невозможнос
 |---|---|
 | 1. Статика | `compileall`, shell syntax, repository hygiene |
 | 2. Модульные | Budget, cycle guard, redaction, storage, quarantine, registry |
-| 3. Интеграционные | Pipeline, evidence bridge, commercial bridge, memory gate |
+| 3. Интеграционные | Pipeline, evidence/commercial bridges, memory gate, loopback HTTP |
 | 4. Offline | `full_life_test.sh`, cleaning v1, Evidence Objects v2 |
 | 5. Реальный API | Только отдельный `--live`; текущий результат нельзя имитировать |
 | 6. Устойчивость | 400/404/429/5xx, timeout, truncation, corruption, concurrency |
