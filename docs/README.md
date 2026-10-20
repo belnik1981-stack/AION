@@ -27,6 +27,18 @@ Claim registry принимает только целостный process-sealed
 
 ## Проверка v2
 
+Единая приёмка актуального `master` для владельца и QA:
+
+```bash
+bash scripts/owner_acceptance_test.sh
+```
+
+Она запускает полный offline-контур в изолированной локальной копии и не пишет
+в основную runtime-память checkout. Подробный контракт — в
+[`TEST_SPECIMEN.md`](TEST_SPECIMEN.md).
+
+Низкоуровневые проверки отдельных trials:
+
 ```bash
 python -m tests.harness.test_repository_hygiene
 python -m tests.harness.test_information_cleaning_trial
@@ -50,6 +62,7 @@ python tools/prepare_evidence_candidate.py \
 
 ## Документы состояния
 
+- [Архитектура и QA испытательного образца](TEST_SPECIMEN.md)
 - [PROJECT_STATE](PROJECT_STATE.md)
 - [ADR-0001: information cleaning v1](architecture/ADR-0001-INFORMATION_CLEANING_TRIAL_V1.md)
 - [ADR-0002: Evidence Objects v2](architecture/ADR-0002-EVIDENCE_OBJECTS_V2.md)
