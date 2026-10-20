@@ -8,6 +8,7 @@ from .atomic_json import (
     atomic_write_json,
     backup_path,
     load_json,
+    scan_jsonl_records,
     update_json,
 )
 
@@ -19,5 +20,6 @@ __all__ = [
     "atomic_write_json",
     "backup_path",
     "load_json",
+    "scan_jsonl_records",
     "update_json",
 ]

@@ -12,6 +12,7 @@ logs/
 state.json
 pipeline_state.json
 knowledge/episodic/*.json
+knowledge/episodic/*.jsonl
 knowledge/long_term/*.json
 knowledge/candidates/*.jsonl
 knowledge/adaptive/*.json

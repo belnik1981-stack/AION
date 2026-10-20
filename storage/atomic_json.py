@@ -322,31 +322,16 @@ def append_jsonl_record(
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     with _storage_lock(target):
-        if target.exists():
-            try:
-                with target.open("rb") as handle:
-                    for line_number, raw_line in enumerate(handle, start=1):
-                        if len(raw_line) > MAX_JSONL_RECORD_BYTES:
-                            raise JsonCorruptionError(
-                                f"Audit log повреждён в строке {line_number}"
-                            )
-                        stripped = raw_line.strip()
-                        if not stripped:
-                            continue
-                        try:
-                            existing = json.loads(stripped.decode("utf-8"))
-                        except (UnicodeError, json.JSONDecodeError) as exc:
-                            raise JsonCorruptionError(
-                                f"Audit log повреждён в строке {line_number}"
-                            ) from exc
-                        if not isinstance(existing, dict):
-                            raise JsonCorruptionError(
-                                f"Audit log содержит не-объект в строке {line_number}"
-                            )
-                        if unique_field is not None and existing.get(unique_field) == unique_value:
-                            return False
-            except OSError as exc:
-                raise JsonStorageError("Не удалось проверить audit log") from exc
+        duplicate = False
+
+        def find_duplicate(existing: dict[str, Any], _line_number: int) -> None:
+            nonlocal duplicate
+            if unique_field is not None and existing.get(unique_field) == unique_value:
+                duplicate = True
+
+        _scan_jsonl_unlocked(target, find_duplicate)
+        if duplicate:
+            return False
 
         descriptor = os.open(target, os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
         try:
@@ -367,3 +352,55 @@ def append_jsonl_record(
             pass
         _fsync_directory(target.parent)
         return True
+
+
+def _scan_jsonl_unlocked(
+    target: Path,
+    visitor: Callable[[dict[str, Any], int], None],
+) -> int:
+    if not target.exists():
+        return 0
+    count = 0
+    try:
+        with target.open("rb") as handle:
+            for line_number, raw_line in enumerate(handle, start=1):
+                if len(raw_line) > MAX_JSONL_RECORD_BYTES or not raw_line.endswith(b"\n"):
+                    raise JsonCorruptionError(
+                        f"JSONL log повреждён в строке {line_number}"
+                    )
+                stripped = raw_line.strip()
+                if not stripped:
+                    continue
+                try:
+                    existing = json.loads(stripped.decode("utf-8"))
+                except (UnicodeError, json.JSONDecodeError) as exc:
+                    raise JsonCorruptionError(
+                        f"JSONL log повреждён в строке {line_number}"
+                    ) from exc
+                if not isinstance(existing, dict):
+                    raise JsonCorruptionError(
+                        f"JSONL log содержит не-объект в строке {line_number}"
+                    )
+                visitor(existing, line_number)
+                count += 1
+    except JsonStorageError:
+        raise
+    except OSError as exc:
+        raise JsonStorageError("Не удалось проверить JSONL log") from exc
+    return count
+
+
+def scan_jsonl_records(
+    path: str | Path,
+    visitor: Callable[[dict[str, Any], int], None],
+) -> int:
+    """Validate and inspect a JSONL log while holding its process/file lock."""
+
+    if not callable(visitor):
+        raise TypeError("visitor JSONL log должен быть callable")
+    target = Path(path)
+    if not target.parent.exists() and not target.exists():
+        return 0
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with _storage_lock(target):
+        return _scan_jsonl_unlocked(target, visitor)
