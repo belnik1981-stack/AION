@@ -3,6 +3,7 @@ from tempfile import TemporaryDirectory
 
 from learning.controller import AdaptiveLearningController
 from learning.policy_engine import TrustPolicyEngine
+from verification.pipeline import EvidenceItem, VerificationPolicy, verify_candidate_record
 
 
 def check(name, condition):
@@ -10,6 +11,25 @@ def check(name, condition):
     print(f"[{status}] {name}")
     if not condition:
         raise AssertionError(name)
+
+
+def record(identity: str, claim: str):
+    return verify_candidate_record(
+        {"candidate_id": f"candidate:{identity}"},
+        claim,
+        [
+            EvidenceItem(
+                identity,
+                "model_output",
+                "supports",
+                0.7,
+                f"unverified:model:{identity}",
+            ),
+            EvidenceItem("fixture-a", "controlled_fixture", "supports", 0.9, "root-a"),
+            EvidenceItem("fixture-b", "controlled_fixture", "supports", 0.8, "root-b"),
+        ],
+        VerificationPolicy(),
+    )
 
 
 print("========== AION TRUST POLICY ENGINE TEST ==========")
@@ -25,20 +45,33 @@ with TemporaryDirectory() as tmp:
     soft = engine.assess_and_learn(
         kind="model",
         identity="model-a",
-        supported=True,
-        evidence_score=1.8,
+        verification_record=record("model-a", "Fixtures support model A output."),
         importance=0.30,
         cleanliness=0.95,
         negative_impact=0.20,
     )
-    check("level 1 allows learning", soft["learning"].get("updated") is True)
+    check("level 1 allows evidence-gated learning", soft["learning"].get("updated") is True)
     check("level 1 keeps nonzero influence", soft["effective_influence_after"] > 0)
+
+    # Compatibility arguments cannot replace the structured record.
+    legacy = engine.assess_and_learn(
+        kind="model",
+        identity="legacy-model",
+        supported=True,
+        evidence_score=999.0,
+        importance=0.20,
+        cleanliness=0.95,
+        negative_impact=0.10,
+    )
+    check(
+        "bare score is rejected",
+        legacy["learning"].get("reason") == "structured_verification_required",
+    )
 
     strict = engine.assess_and_learn(
         kind="model",
         identity="model-b",
-        supported=True,
-        evidence_score=2.0,
+        verification_record=record("model-b", "Fixtures support model B output."),
         importance=0.80,
         cleanliness=0.68,
         negative_impact=0.55,
@@ -49,8 +82,7 @@ with TemporaryDirectory() as tmp:
     isolated = engine.assess_and_learn(
         kind="model",
         identity="model-c",
-        supported=True,
-        evidence_score=2.5,
+        verification_record=record("model-c", "Fixtures support model C output."),
         importance=0.90,
         cleanliness=0.35,
         negative_impact=0.90,

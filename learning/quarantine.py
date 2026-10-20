@@ -10,11 +10,20 @@ Truth is never modified here.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import math
 from typing import Any
 
 
 def _clamp01(value: float) -> float:
-    return max(0.0, min(1.0, float(value)))
+    if isinstance(value, bool):
+        raise TypeError("Quarantine metric must be numeric")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise TypeError("Quarantine metric must be numeric") from exc
+    if not math.isfinite(number):
+        raise ValueError("Quarantine metric must be finite")
+    return max(0.0, min(1.0, number))
 
 
 @dataclass(frozen=True)

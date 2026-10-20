@@ -21,14 +21,18 @@ class TrustPolicyEngine:
         *,
         kind: str,
         identity: str,
-        supported: bool,
-        evidence_score: float,
         importance: float,
         cleanliness: float,
         negative_impact: float,
-        contradicted: bool = False,
+        verification_record: dict[str, Any] | None = None,
         regression_detected: bool = False,
+        # Kept only for a fail-closed transition from the old API. Bare
+        # verdicts and scores are never used for learning.
+        supported: bool | None = None,
+        evidence_score: float | None = None,
+        contradicted: bool | None = None,
     ) -> dict[str, Any]:
+        del supported, evidence_score, contradicted
         quarantine = assess_quarantine(
             importance=importance,
             cleanliness=cleanliness,
@@ -54,10 +58,8 @@ class TrustPolicyEngine:
         learning = self.controller.record_verified_outcome(
             kind=kind,
             identity=identity,
-            supported=supported,
-            evidence_score=evidence_score,
-            contradicted=contradicted,
-            cleanliness_passed=cleanliness >= 0.70,
+            verification_record=verification_record,
+            cleanliness_passed=quarantine.cleanliness >= 0.70,
             regression_detected=regression_detected,
         )
         result["learning"] = learning

@@ -9,13 +9,17 @@ AION — модульная AI-система, разрабатываемая с
 
 ## Фактические контуры
 
-- `core/` — существующий runtime AION и OpenAI-compatible provider;
+- `core/` — runtime AION, multi-model orchestration и analysis-only bridges;
+- `verification/` — детерминированная оценка evidence и транзакционный promotion;
+- `learning/` — карантин и evidence-gated калибровка надёжности;
 - `knowledge/truth/` — read-only governance-слой;
 - `trials/information_cleaning_v1/` — детерминированная очистка синтетических records;
 - `trials/evidence_objects_v2/` — offline RawArtifact/EvidenceObject/ClaimObject, integrity/provenance graph и fail-closed gate;
 - `tests/harness/` — локальные архитектурные и safety-проверки.
 
-Offline trials не подключены к runtime, provider, сети, существующей memory или автономным действиям. Максимальный результат evidence-контуров — `ANALYSIS_ONLY` при `execution_authorized=false`.
+Evidence Objects v2 подключаются к runtime только через analysis-only bridge.
+Он не разрешает execution, Truth update или автоматический memory promotion.
+Детерминированные offline trials сами не вызывают provider или сеть.
 
 ## Проверка v2
 
@@ -41,6 +45,7 @@ API-ключ для этих команд не требуется.
 - [ADR-0008: параллельная коммерческая оценка](architecture/ADR-0008-COMMERCIAL-PARALLEL-BRIDGE.md)
 - [ADR-0009: сетевая граница evidence collector](architecture/ADR-0009-EVIDENCE-NETWORK-BOUNDARY.md)
 - [ADR-0010: ограниченный Agents SDK runtime](architecture/ADR-0010-BOUNDED-AGENTS-SDK-RUNTIME.md)
+- [ADR-0011: evidence-gated adaptive learning](architecture/ADR-0011-EVIDENCE-GATED-ADAPTIVE-LEARNING.md)
 - [Инструкция v2](trials/EVIDENCE_OBJECTS_V2.md)
 - [Source manifest](egde/SOURCE_MANIFEST_2026-09-08.md)
 
@@ -54,4 +59,5 @@ API-ключ для этих команд не требуется.
 - основной pipeline и optional Agents SDK имеют отдельные bounded budgets и
   пока не делят один общий счётчик между одновременными запусками;
 - актуальное реальное API-испытание требует ключ владельца и доступных бесплатных моделей;
-- merge в `master` требует отдельного решения владельца.
+- merge в `master` допускается только в рамках явно делегированных полномочий
+  после обязательных успешных проверок и проверки точной головы PR.
