@@ -1,7 +1,7 @@
 # PROJECT STATE
 
 Дата актуализации: 2026-10-20
-Проверенный baseline перед текущим изменением: `master@7174f8627ef71c245981a009f6c8a6447ef38370` после PR #37
+Проверенный implementation baseline: `master@558befa9b171bfcb5a705a24c3210781da425004` после PR #39
 Текущий этап: полный аудит и последовательное устранение подтверждённых дефектов.
 
 ## 1. Назначение этого файла
@@ -251,9 +251,11 @@ Agents SDK contract и повторный post-merge life trial прошли.
 локальная регрессия и post-merge release acceptance на `7174f86` прошли;
 live‑этап был явно пропущен из-за отсутствия ключа.
 
-**FACT:** текущий финальный offline-этап добавляет реальный loopback HTTP smoke:
+**FACT:** PR #39 добавил реальный loopback HTTP smoke:
 поднимается ephemeral `127.0.0.1` server, проверяются GET/404, обе POST-точки,
 лимит тела, redirect, security headers, redaction и HTML escaping без LLM-сети.
+Пять workflows, Python 3.10/3.12, optional Agents SDK contract и post-merge
+owner acceptance на `558befa9` прошли; live-этап остался явно пропущенным.
 
 ## 10. Открытые технические ограничения
 

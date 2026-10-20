@@ -1,7 +1,8 @@
 # AION — итоговый аудит испытательного образца
 
 Дата: 2026-10-20
-Проверенный baseline перед финальным HTTP smoke: `master@7174f8627ef71c245981a009f6c8a6447ef38370`.
+Проверенный implementation baseline после финального HTTP smoke:
+`master@558befa9b171bfcb5a705a24c3210781da425004` (PR #39).
 
 ## Вердикт
 
@@ -46,15 +47,16 @@
 | Offline cleaning/evidence trials | PASS |
 | Storage corruption/concurrency | PASS |
 | Provider 400/404/429/5xx/truncation simulations | PASS |
-| Loopback HTTP | PASS локально; CI текущего изменения обязателен |
+| Loopback HTTP | PASS локально и в CI на Python 3.10/3.12 |
 | Public OpenRouter catalog без генерации | PASS на PR #37 |
 | Актуальный генеративный live API | NOT RUN — ключ отсутствует |
 | Фактический Android/Termux | NOT RUN — требуется устройство владельца |
 
-Запуски PR #37: GitHub Actions `39387837332`, `39387837348`, `39387837351`,
-`39387837398`, `39387837408`; все завершены `success`. Post-merge команда
+Запуски PR #39: GitHub Actions `39388457179`, `39388457191`, `39388457209`,
+`39388457230`, `39388457246`; все завершены `success`. В offline matrix прошли
+Python 3.10/3.12 и отдельный optional Agents SDK contract. Post-merge команда
 `bash scripts/owner_acceptance_test.sh` завершилась `[ACCEPTANCE PASS]` на
-`master@7174f862...`, `live=SKIP`.
+`master@558befa9...`, `live=SKIP`; основная runtime-память и Truth не изменились.
 
 ## Нерешённые границы
 
