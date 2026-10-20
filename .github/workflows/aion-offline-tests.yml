@@ -138,3 +138,6 @@ jobs:
 
       - name: Run server safety harness
         run: python tests/harness/test_server_safety.py
+
+      - name: Run real loopback HTTP smoke
+        run: python tests/harness/test_server_http_smoke.py

@@ -1,7 +1,7 @@
 # PROJECT STATE
 
 Дата актуализации: 2026-10-20
-Проверенный baseline перед текущим изменением: `master@0dfc928a293ee8ba5696d74539089027b52d8c76` после PR #36
+Проверенный baseline перед текущим изменением: `master@7174f8627ef71c245981a009f6c8a6447ef38370` после PR #37
 Текущий этап: полный аудит и последовательное устранение подтверждённых дефектов.
 
 ## 1. Назначение этого файла
@@ -244,11 +244,16 @@ post-merge offline trial прошли. Live provider test не выполнял�
 временную копию по fingerprint. Пять workflows, обе Python-матрицы, optional
 Agents SDK contract и повторный post-merge life trial прошли.
 
-**FACT:** текущий эксплуатационный этап добавляет один owner/QA launcher. Он
+**FACT:** PR #37 добавил один owner/QA launcher. Он
 проверяет точную версию, запускает life trial в отдельном локальном clone,
 сравнивает Truth и основную runtime-память до/после и допускает live‑проверку
-только отдельным флагом. Локальная регрессия launcher проходит; CI текущей
-ветки должен подтвердить это независимо.
+только отдельным флагом. Пять workflows, Python 3.10/3.12, optional Agents SDK,
+локальная регрессия и post-merge release acceptance на `7174f86` прошли;
+live‑этап был явно пропущен из-за отсутствия ключа.
+
+**FACT:** текущий финальный offline-этап добавляет реальный loopback HTTP smoke:
+поднимается ephemeral `127.0.0.1` server, проверяются GET/404, обе POST-точки,
+лимит тела, redirect, security headers, redaction и HTML escaping без LLM-сети.
 
 ## 10. Открытые технические ограничения
 
