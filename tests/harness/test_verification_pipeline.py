@@ -47,4 +47,62 @@ same_origin = evaluate_claim(
 assert same_origin.decision == "needs_more_evidence", same_origin
 assert "insufficient_independent_sources" in same_origin.reasons
 
+duplicate_source = evaluate_claim(
+    "Repeating one source id cannot create two sources.",
+    [
+        EvidenceItem("same-source", "reference", "supports", 0.9, "claimed-root-a"),
+        EvidenceItem("same-source", "reference", "supports", 0.9, "claimed-root-b"),
+    ],
+    policy,
+)
+assert duplicate_source.decision == "needs_more_evidence", duplicate_source
+assert duplicate_source.supporting_sources == 1, duplicate_source
+assert duplicate_source.weighted_support == 0.9, duplicate_source
+assert duplicate_source.independent_support_groups == 0, duplicate_source
+
+for invalid_quality in (float("nan"), float("inf"), float("-inf")):
+    try:
+        evaluate_claim(
+            "Non-finite quality is invalid.",
+            [EvidenceItem("bad", "reference", "supports", invalid_quality, "root")],
+            VerificationPolicy(),
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("non-finite evidence quality was accepted")
+
+try:
+    evaluate_claim(
+        "Non-finite policy is invalid.",
+        [EvidenceItem("src", "reference", "supports", 0.9, "root")],
+        VerificationPolicy(min_weighted_support=float("nan")),
+    )
+except ValueError:
+    pass
+else:
+    raise AssertionError("non-finite verification policy was accepted")
+
+try:
+    evaluate_claim(
+        "Empty source type is invalid.",
+        [EvidenceItem("src", "", "supports", 0.9, "root")],
+        VerificationPolicy(),
+    )
+except ValueError:
+    pass
+else:
+    raise AssertionError("empty evidence source_type was accepted")
+
+try:
+    evaluate_claim(
+        "x" * 100_001,
+        [EvidenceItem("src", "reference", "supports", 0.9, "root")],
+        VerificationPolicy(),
+    )
+except ValueError:
+    pass
+else:
+    raise AssertionError("oversized claim was accepted")
+
 print("VERIFICATION PIPELINE TEST: PASS")

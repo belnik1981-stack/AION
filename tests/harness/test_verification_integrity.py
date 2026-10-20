@@ -55,6 +55,40 @@ except ValueError:
 else:
     raise AssertionError("tampered claim was promoted")
 
+# Derived evaluation metadata is compared in full, not just by decision.
+tampered_evaluation = copy.deepcopy(record)
+tampered_evaluation["evaluation"]["weighted_support"] = 999.0
+try:
+    promote_verified_claim(tampered_evaluation, reviewed_by="test-reviewer")
+except ValueError:
+    pass
+else:
+    raise AssertionError("tampered evaluation metadata was promoted")
+
+# A self-selected weak policy may describe an analysis record, but it cannot
+# lower the non-overridable promotion floor.
+weak_policy = VerificationPolicy(
+    min_supporting_sources=1,
+    min_independent_groups=1,
+    min_weighted_support=0.1,
+    max_weighted_contradiction=1.0,
+    min_average_quality=0.1,
+    require_non_llm_source=False,
+)
+weak_record = verify_candidate_record(
+    {"candidate_id": "weak-policy"},
+    "One weak source is not enough for promotion.",
+    [EvidenceItem("weak-source", "reference", "supports", 0.2, "weak-root")],
+    weak_policy,
+)
+assert weak_record["evaluation"]["decision"] == "verified"
+try:
+    promote_verified_claim(weak_record, reviewed_by="test-reviewer")
+except ValueError as exc:
+    assert "policy" in str(exc).lower() or "minimum" in str(exc).lower()
+else:
+    raise AssertionError("weak caller-selected policy permitted promotion")
+
 # Empty reviewer is rejected before promotion.
 try:
     promote_verified_claim(record, reviewed_by="")
