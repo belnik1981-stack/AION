@@ -27,5 +27,17 @@ check("isolation influence zero", isolation.influence_multiplier == 0.0)
 check("isolation blocks learning", isolation.learning_allowed is False)
 check("effective influence zero in isolation", effective_influence(0.95, isolation) == 0.0)
 
+for invalid_metric in (float("nan"), float("inf"), float("-inf"), True):
+    try:
+        assess_quarantine(
+            importance=invalid_metric,
+            cleanliness=0.95,
+            negative_impact=0.20,
+        )
+    except (TypeError, ValueError):
+        pass
+    else:
+        raise AssertionError("invalid quarantine metric was accepted")
+
 print("========== RESULT ==========")
 print("THREE-LEVEL TRUST QUARANTINE: PASS")
