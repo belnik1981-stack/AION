@@ -1,7 +1,7 @@
 # ADR-0006: транзакционный promotion в long-term memory
 
 Статус: принято и проверено offline
-Дата: 2026-10-19
+Дата: 2026-10-20
 
 ## Контекст
 
@@ -14,14 +14,15 @@ verification gate.
 
 Promotion выполняется как идемпотентная восстанавливаемая последовательность:
 
-1. повторно вычислить verification decision и integrity hash;
-2. создать crash-safe transaction journal со статусом `prepared`;
-3. записать уникальное audit-событие `promotion_prepared`;
-4. поместить claim в `pending_promotions`, невидимое для long-term чтения;
-5. записать уникальное audit-событие `promote_to_long_term`;
-6. только после успешного committed audit перенести claim в
+1. повторно вычислить integrity hash, claim id и все поля verification decision;
+2. отклонить policy слабее минимального `VerificationPolicy()`;
+3. создать crash-safe transaction journal со статусом `prepared`;
+4. записать уникальное audit-событие `promotion_prepared`;
+5. поместить claim в `pending_promotions`, невидимое для long-term чтения;
+6. записать уникальное audit-событие `promote_to_long_term`;
+7. только после успешного committed audit перенести claim в
    `learned_lessons`;
-7. отметить transaction как `committed`.
+8. отметить transaction как `committed`.
 
 Каждый audit event имеет детерминированный `event_id`. Повтор или восстановление
 не создаёт дубликат. Transaction содержит digest committed audit record;
@@ -29,6 +30,11 @@ Promotion выполняется как идемпотентная восста�
 
 Прямая запись через `add_long_term_lesson` запрещена. Claim, evidence или reviewer
 с обнаруженным секретом блокируют всю операцию. `Truth` не изменяется.
+
+Один `source_id` считается одним источником независимо от числа повторов;
+противоречивые dependency groups одного source не увеличивают независимость.
+Нефинитные числа, пустой `source_type` и превышение границ claim/evidence
+блокируются до promotion.
 
 ## Восстановление
 
@@ -42,6 +48,9 @@ Promotion выполняется как идемпотентная восста�
 `tests/harness/test_verification_integrity.py` проверяет:
 
 - повторную оценку и защиту integrity hash;
+- полное совпадение derived evaluation и claim id;
+- неослабляемый policy floor, дедупликацию source id и числовые/размерные
+  границы;
 - обязательного reviewer;
 - полный успешный promotion;
 - два audit events и committed journal;
