@@ -36,6 +36,16 @@ if [[ ! -x "$VENV_ROOT/bin/python" ]]; then
   }
 fi
 
+# Termux may create a venv without pip even when ensurepip wheels are installed.
+# Repair only the dedicated test venv; never install into the system Python.
+if ! "$VENV_ROOT/bin/python" -m pip --version >/dev/null 2>&1; then
+  echo "[AION] Bootstrapping pip in the test environment"
+  "$VENV_ROOT/bin/python" -m ensurepip --upgrade || {
+    echo "[FAIL] Cannot bootstrap pip in the test venv. On Termux install python-ensurepip-wheels." >&2
+    exit 2
+  }
+fi
+
 "$VENV_ROOT/bin/python" -m pip install --disable-pip-version-check -q -r requirements-core.txt
 
 export PATH="$VENV_ROOT/bin:$PATH"

@@ -46,7 +46,9 @@ with tempfile.TemporaryDirectory() as temp_dir:
     (project / "knowledge" / "episodic").mkdir(parents=True)
     shutil.copy2(LAUNCHER, project / "scripts" / LAUNCHER.name)
     (project / "scripts" / "cloud_check.sh").write_text(
-        "#!/usr/bin/env bash\nset -eu\necho '[PASS] OFFLINE LIFE TRIAL'\n",
+        "#!/usr/bin/env bash\nset -eu\n"
+        "if printenv AION_EXPECTED_SHA >/dev/null; then exit 99; fi\n"
+        "echo '[PASS] OFFLINE LIFE TRIAL'\n",
         encoding="utf-8",
     )
     (project / "knowledge" / "truth" / "truth.json").write_text(
@@ -62,6 +64,7 @@ with tempfile.TemporaryDirectory() as temp_dir:
     subprocess.run(["git", "config", "user.name", "AION Test"], cwd=project, check=True)
     subprocess.run(["git", "add", "."], cwd=project, check=True)
     subprocess.run(["git", "commit", "-q", "-m", "fixture"], cwd=project, check=True)
+    fixture_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=project, text=True).strip()
 
     report_dir = base / "reports"
     temp_root = base / "temporary"
@@ -72,6 +75,7 @@ with tempfile.TemporaryDirectory() as temp_dir:
             "AION_TEST_REPORT_DIR": str(report_dir),
             "AION_ACCEPTANCE_VENV_DIR": str(base / "venv-outside-project"),
             "TMPDIR": str(temp_root),
+            "AION_EXPECTED_SHA": fixture_sha,
         }
     )
     before = memory.read_bytes()
