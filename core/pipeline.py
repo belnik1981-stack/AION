@@ -586,9 +586,10 @@ def run_pipeline(task: str, *, initial_raw_answers: dict | None = None) -> dict:
     multi_model = len(_models()) >= 2
     try:
         budget = ExecutionBudget(
-            timeout_seconds=float(limits[
-                "multi_model_timeout_seconds" if multi_model else "timeout_seconds"
-            ]),
+            timeout_seconds=float(
+                limits.get("multi_model_timeout_seconds", limits["timeout_seconds"])
+                if multi_model else limits["timeout_seconds"]
+            ),
             max_calls=configured_call_limit(),
         )
     except (KeyError, TypeError, ValueError):
