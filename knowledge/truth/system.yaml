@@ -14,8 +14,9 @@ principles:
 
 execution:
   max_iterations: 3
-  # One multi-model round has five sequential roles; retain one bounded global deadline.
-  timeout_seconds: 180
+  timeout_seconds: 30
+  # Five dependent role calls share one bounded multi-model deadline.
+  multi_model_timeout_seconds: 180
 
 memory:
   episodic_is_mutable: true
