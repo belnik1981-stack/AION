@@ -1,10 +1,8 @@
 # PROJECT STATE
 
-Дата контрольной точки: 2026-09-12  
-Рабочая ветка: `multi-model-role-rotation-v1-20260911`  
-База ветки: `evidence-objects-v2-20260909@ce10638524226e721979963a937aa90e05cebd2a`  
-Draft PR: `#4` — `Add multi-model role rotation and validated evidence bridge`  
-`master` не изменён.
+Дата актуализации: 2026-10-20
+Проверенный implementation baseline: `master@558befa9b171bfcb5a705a24c3210781da425004` после PR #39
+Текущий этап: полный аудит и последовательное устранение подтверждённых дефектов.
 
 ## 1. Назначение этого файла
 
@@ -80,7 +78,8 @@ FINAL SYNTHESIS WITH UNCERTAINTY
 
 **DECISION:** общий информационный предок нескольких моделей или источников не должен считаться несколькими независимыми подтверждениями.
 
-**OPEN:** ещё нет полноценного автоматического выделения атомарных claims из всех модельных ответов и их семантического сопоставления с evidence.
+**OPEN:** текущие claim extraction, polarity и matching детерминированы, но
+эвристичны; полноценная semantic verification и внешняя проверка URL не выполнены.
 
 ## 5. Рациональное использование вычислений
 
@@ -127,7 +126,13 @@ role rotation только при необходимости
 
 **HYPOTHESIS:** экономические и другие стимулы могут систематически влиять не только на формулировку данных, но и на их создание, отбор, публикацию, задержку раскрытия или сокрытие неблагоприятной информации.
 
-**DECISION:** вместо отдельного тяжёлого "антикоммерческого" модуля предпочтительно расширять существующее описание provenance/dependency root минимальными признаками, например:
+**DECISION:** коммерческая зависимость анализируется отдельным параллельным
+view и не изменяет основной доверенный pipeline. Введённые пользователем
+коэффициенты остаются непроверенной гипотезой, а не доказательством причинности.
+
+**DECISION:** для дальнейшей доказательной проверки предпочтительно расширять
+существующее описание provenance/dependency root минимальными признаками,
+например:
 
 - `incentive_type`;
 - `incentive_strength`;
@@ -156,32 +161,152 @@ AION должен сохранять происхождение утвержде
 
 ## 9. Проверки текущей ветки
 
-**FACT:** GitHub Actions для commit `5fac26130cd8183c9886e17b78a594499036c505` завершены успешно:
+**FACT:** PR #21 объединён с `master` как `847d08d`; он блокирует утечку
+текста provider exceptions из role-результатов.
 
-- `Offline information-cleaning trial` — success;
-- `Offline evidence-objects v2 trial` — success.
+**FACT:** обязательные GitHub Actions PR #21 завершены успешно на Python 3.10
+и 3.12, после слияния полный offline life trial повторно прошёл локально.
 
-**FACT:** Draft PR #4 остаётся открытым и не слитым.
+**FACT:** текущий runtime-budget этап добавляет один общий deadline из Truth,
+суммарный лимит LLM-вызовов, максимум четыре модели и response-size cap.
+
+**FACT:** mutable JSON-хранилища используют atomic replace, валидную резервную
+копию и блокировку read-modify-write; повреждение больше не превращается молча
+в пустую память.
+
+**FACT:** input, evidence context, prepared model answers, runtime result,
+episodic memory и server state проходят единый bounded redaction; обнаруженный
+секрет полностью блокирует long-term promotion.
+
+**FACT:** verified long-term promotion использует pending memory, два
+идемпотентных audit events и crash-safe transaction journal; direct promotion
+запрещён, а незавершённый claim не виден как learned lesson.
+
+**FACT:** multi-model runtime строит отдельный claim registry с типами,
+model-reported sources, agreement-not-proof, возможными противоречиями,
+divergent/minority claims и analysis-only evidence alignment.
+
+**FACT:** runtime формирует отдельное сравнение claim influence с коммерческим
+слоем и без него; этот слой не меняет базовый registry, итоговый ответ, Truth
+или память и не объявляет коммерческую причинность проверенной.
+
+**FACT:** evidence collector вручную проверяет каждый redirect, блокирует
+non-global адреса, нестандартные порты и HTTPS downgrade, ограничивает ресурсы
+и не выводит наружу сырые сетевые исключения.
+
+**FACT:** optional Agents SDK runtime по умолчанию допускает только free-модели
+OpenRouter, отключает SDK retries, ограничивает turns/tokens/model-call и весь
+run по времени, скрывает provider exceptions и не имеет права записи Truth или
+memory.
+
+**FACT:** успешные negative-control сценарии больше не оставляют ложные
+верхнеуровневые строки `[FAIL]` в полном журнале; PR #30 прошёл пять workflows,
+матрицы Python 3.10/3.12 и повторный полный offline trial после merge.
+
+**FACT:** PR #31 не позволяет caller-selected policy ослабить long-term
+promotion, полностью пересчитывает derived verification metadata, учитывает
+один `source_id` один раз и блокирует нефинитные/неограниченные evidence-входы;
+пять workflows и матрицы Python 3.10/3.12 завершились успешно.
+
+**FACT:** PR #32 запрещает обучение по голым
+`score/verdict`, заново проверяет структурированный verification record,
+исключает self/model corroboration, блокирует replay и атомарно сохраняет
+состояние с восстанавливаемой pending audit-очередью. Пять workflows, Python
+3.10/3.12, Agents SDK contract и повторный post-merge offline trial прошли.
+
+**FACT:** PR #33 перевёл stateful monitor коммерческого параллельного
+слоя на блокируемые атомарные транзакции и восстанавливаемую pending
+audit-очередь. Секреты, нефинитные числа и повреждённая структура блокируются;
+лимиты случаев, истории, pending events и размера state не удаляют старые
+данные, а останавливают новую запись. Пять workflows и повторный post-merge
+offline trial прошли.
+
+**FACT:** PR #34 закрыл обход analysis-only bridge: claim registry
+больше не принимает произвольный список как валидированный evidence. Контекст
+содержит детерминированный digest и процесс-локальный HMAC seal, повторно
+проверяется до первого provider call и не раскрывает локальный путь bundle.
+Изменение claim или флага полномочий блокирует весь evidence-контекст. Пять
+workflows, матрицы Python 3.10/3.12 и повторный post-merge offline trial прошли.
+
+**FACT:** текущий этап преобразует результат bounded evidence collector только
+в карантинный пакет существующего формата v2. Автоматически собранные документы
+получают `relation=context`, неизвестное качество и `DENIED`; runtime bridge их
+не принимает. Query URL не сохраняется, секрет блокирует запись, а Truth,
+memory и audit недоступны как места назначения.
+
+**FACT:** PR #35 с этим карантинным ingestion объединён как `4ab4250`; все пять
+workflows, матрицы Python 3.10/3.12, optional Agents SDK contract и повторный
+post-merge offline trial прошли. Live provider test не выполнялся без ключа.
+
+**FACT:** PR #36 ограничил активную episodic memory по числу событий и размеру,
+предварительно сохраняя старые принятые записи в закрытом append-only архиве.
+Сбой между archive append и active replace не теряет событие; retry устраняет
+временную копию по fingerprint. Пять workflows, обе Python-матрицы, optional
+Agents SDK contract и повторный post-merge life trial прошли.
+
+**FACT:** PR #37 добавил один owner/QA launcher. Он
+проверяет точную версию, запускает life trial в отдельном локальном clone,
+сравнивает Truth и основную runtime-память до/после и допускает live‑проверку
+только отдельным флагом. Пять workflows, Python 3.10/3.12, optional Agents SDK,
+локальная регрессия и post-merge release acceptance на `7174f86` прошли;
+live‑этап был явно пропущен из-за отсутствия ключа.
+
+**FACT:** PR #39 добавил реальный loopback HTTP smoke:
+поднимается ephemeral `127.0.0.1` server, проверяются GET/404, обе POST-точки,
+лимит тела, redirect, security headers, redaction и HTML escaping без LLM-сети.
+Пять workflows, Python 3.10/3.12, optional Agents SDK contract и post-merge
+owner acceptance на `558befa9` прошли; live-этап остался явно пропущенным.
 
 ## 10. Открытые технические ограничения
 
-- **OPEN:** общий лимит всех LLM/tool calls ещё не связан единым бюджетом с `max_iterations`.
-- **OPEN:** provider timeout не доказанно связан с общим `timeout_seconds` из Truth.
+- **FACT:** основной pipeline использует единый call budget; повтор после
+  усечения расходует его как отдельный вызов.
+- **FACT:** provider timeout ограничен оставшимся `timeout_seconds` общего
+  монотонного deadline.
 - **OPEN:** нет доверенного внешнего механизма проверки реальной независимости скрытых dependency roots.
+- **OPEN:** значения коммерческих факторов пока задаются пользователем и не
+  подтверждаются независимыми источниками; их причинная связь не доказана.
 - **OPEN:** внешняя подлинность provenance и semantic truth verification остаются нерешёнными.
+- **OPEN:** DNS/IP guard не даёт абсолютной защиты от DNS rebinding между
+  проверкой адреса и системным соединением.
 - **OPEN:** автоматическое promotion в long-term memory/Truth не разрешено.
-- **OPEN:** response-size cap до JSON parsing у OpenAI-compatible provider ещё не добавлен.
+- **FACT:** response-size cap применяется до JSON parsing.
+- **FACT:** Agents SDK использует отдельный bounded budget из тех же Truth
+  limits; одновременный SDK run и основной pipeline пока не делят один счётчик.
+- **OPEN:** принудительная отмена уже начатого системного вызова остаётся
+  best-effort поверх socket timeout.
+- **OPEN:** pattern redaction не гарантирует обнаружение неизвестных форматов
+  чувствительных данных; шифрование at rest не реализовано.
+- **FACT:** активное episodic history ограничено; вытесненные записи сохраняются
+  в проверяемом локальном архиве и не удаляются автоматически.
+- **OPEN:** человеческий reviewer и заявленные evidence attributes не доказывают
+  внешнюю подлинность источника; promotion не означает Truth update.
+- **OPEN:** даже целостный verification record не доказывает внешнюю подлинность
+  `source_type` и `independent_group`; adaptive learning поэтому остаётся
+  ограниченной калибровкой, а не доказательством истины.
+- **OPEN:** защищённое хранение commercial monitor не подтверждает причинную
+  коммерческую зависимость; оно сохраняет только состояние параллельной
+  гипотезы и наблюдаемого сравнения.
+- **OPEN:** process-local seal подтверждает только неизменность контекста между
+  bridge и registry в одном процессе; он не доказывает внешнюю подлинность
+  bundle, источника или его владельца и не предназначен для долговременной
+  подписи.
 
 ## 11. Ближайший рациональный шаг
 
 Не создавать новый большой слой.
 
-Следующий этап — проверить, какой минимальный объём изменений нужен, чтобы существующие `information_cleaning_v1`, `evidence_objects_v2` и multi-model runtime использовали единое представление противоречий и dependency roots без дублирования логики.
+После owner/QA launcher следующий обязательный шаг — личная приёмка владельцем
+на актуальном `master`: сначала offline, затем отдельный live‑этап с двумя
+доступными бесплатными моделями. До этого статус — воспроизводимый offline
+test specimen, а не окончательно принятый live‑образец. Сетевой fetch,
+извлечение текста, provenance, смысловая связь с claim и внешняя проверка
+по-прежнему остаются разными этапами.
 
 После этого отдельно оценить необходимость:
 
-1. claim extraction / matching;
-2. признаков incentive distortion;
+1. semantic claim extraction / matching;
+2. независимо проверяемых признаков incentive distortion;
 3. adaptive escalation по вычислительной нагрузке;
 4. reopen только по существенному новому evidence.
 
@@ -191,8 +316,7 @@ AION должен сохранять происхождение утвержде
 
 `master` — основная ветка репозитория. Экспериментальные изменения выполняются в отдельных ветках.
 
-Текущая ветка: `multi-model-role-rotation-v1-20260911`.
-
-Слияние изменений в `master` без отдельного разрешения владельца проекта запрещено.
+Изменения выполняются небольшими ветками и объединяются только после
+обязательных успешных проверок, проверки конфликтов и явной трассировки PR.
 
 Полная история предыдущих контрольных точек сохраняется Git; в этом файле поддерживается только компактное актуальное состояние.

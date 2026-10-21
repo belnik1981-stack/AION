@@ -1,0 +1,143 @@
+name: AION offline tests
+
+on:
+  push:
+    branches:
+      - agents-sdk-adapter-20260908
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  agents-sdk-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned optional Agents SDK
+        run: python -m pip install -r requirements-core.txt -r requirements-agents.txt
+
+      - name: Verify pinned SDK import contract without network
+        env:
+          PYTHONPATH: .
+        run: python tests/harness/test_agents_sdk_import_contract.py
+
+  offline-harness:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install core test dependencies
+        run: python -m pip install -r requirements-core.txt
+
+      - name: Compile Python files
+        run: python -m compileall -q .
+
+      - name: Validate startup shell
+        run: sh -n start_app.sh
+
+      - name: Run architecture harness
+        run: python tests/harness/test_current_architecture.py
+
+      - name: Run Agents runtime adapter harness
+        run: python tests/harness/test_agents_runtime_adapter.py
+
+      - name: Check optional Agents SDK import contract when installed
+        run: python tests/harness/test_agents_sdk_import_contract.py
+
+      - name: Run chat ingestion harness
+        run: python tests/harness/test_chat_ingestion.py
+
+      - name: Run verification harness
+        run: python tests/harness/test_verification_pipeline.py
+
+      - name: Run verification integrity harness
+        run: python tests/harness/test_verification_integrity.py
+
+      - name: Run evidence collector harness
+        run: python tests/harness/test_evidence_collector.py
+
+      - name: Run quarantined evidence candidate harness
+        run: python tests/harness/test_evidence_candidate_bundle.py
+
+      - name: Run adaptive learning harness
+        run: python tests/harness/test_adaptive_learning.py
+
+      - name: Run trust quarantine harness
+        run: python tests/harness/test_trust_quarantine.py
+
+      - name: Run trust policy harness
+        run: python tests/harness/test_trust_policy_engine.py
+
+      - name: Run commercial dependency harness
+        run: python tests/harness/test_commercial_dependency_layer.py
+
+      - name: Run cycle guard harness
+        run: python tests/harness/test_cycle_guard.py
+
+      - name: Run pipeline cycle regression
+        run: python tests/harness/test_pipeline_cycle_regression.py
+
+      - name: Run provider resilience regression
+        run: python tests/harness/test_provider_resilience.py
+
+      - name: Run global runtime budget regression
+        run: python tests/harness/test_runtime_budget.py
+
+      - name: Run crash-safe storage fault injection
+        run: python tests/harness/test_crash_safe_storage.py
+
+      - name: Run bounded episodic archive regression
+        run: python tests/harness/test_episodic_memory_archive.py
+
+      - name: Run owner acceptance launcher regression
+        run: python tests/harness/test_owner_acceptance_launcher.py
+
+      - name: Run sensitive data boundary regression
+        run: python tests/harness/test_sensitive_data_redaction.py
+
+      - name: Run claim and disagreement registry regression
+        run: python tests/harness/test_claim_registry.py
+
+      - name: Run commercial parallel bridge regression
+        run: python tests/harness/test_commercial_parallel_bridge.py
+
+      - name: Verify live free model catalog guard without network
+        run: python tests/harness/test_free_model_catalog_preflight.py
+
+      - name: Verify bounded live-driver regression offline
+        run: python tests/harness/test_live_free_pipeline_trial.py
+
+      - name: Verify independent two-model trial without network
+        run: python tests/harness/test_multi_model_runtime_regression.py && python tests/harness/test_live_free_multi_model_trial.py
+
+      - name: Validate live probe shell
+        run: bash -n scripts/live_probe.sh
+
+      - name: Run server safety harness
+        run: python tests/harness/test_server_safety.py
+
+      - name: Run real loopback HTTP smoke
+        run: python tests/harness/test_server_http_smoke.py

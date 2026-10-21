@@ -1,0 +1,26 @@
+name: OpenRouter public catalog contract
+
+on:
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-catalog-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check real public model catalog, no credentials or LLM calls
+        env:
+          PYTHONPATH: .
+        run: python tests/integration/test_openrouter_public_catalog.py

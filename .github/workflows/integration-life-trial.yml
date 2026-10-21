@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - integration-life-trial-v1-20261015
+      - integration/aion-pr1-pr5-validation-20261016
   pull_request:
     branches:
       - master
@@ -29,5 +30,31 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install runtime dependency
         run: python -m pip install --disable-pip-version-check PyYAML
+      - name: Validate startup shell
+        run: sh -n start_app.sh
+      - name: Validate one-request live probe script syntax
+        run: bash -n scripts/live_probe.sh
+      - name: Validate Critic live probe script syntax
+        run: bash -n scripts/live_critic_probe.sh
+      - name: Validate pinned model catalog preflight offline
+        run: PYTHONPATH=. python tests/harness/test_free_model_catalog_preflight.py
+      - name: Test bounded free-model live driver with mocked provider
+        run: PYTHONPATH=. python tests/harness/test_live_free_pipeline_trial.py
+      - name: Verify global runtime budget without network
+        run: PYTHONPATH=. python tests/harness/test_runtime_budget.py
+      - name: Verify crash-safe JSON storage without network
+        run: PYTHONPATH=. python tests/harness/test_crash_safe_storage.py
+      - name: Verify sensitive data boundaries without network
+        run: PYTHONPATH=. python tests/harness/test_sensitive_data_redaction.py
+      - name: Verify claim and disagreement registry without network
+        run: PYTHONPATH=. python tests/harness/test_claim_registry.py
+      - name: Verify commercial parallel bridge without network
+        run: PYTHONPATH=. python tests/harness/test_commercial_parallel_bridge.py
+      - name: Verify two-model comparison and guard regression
+        run: PYTHONPATH=. python tests/harness/test_multi_model_runtime_regression.py && PYTHONPATH=. python tests/harness/test_live_free_multi_model_trial.py
+      - name: Validate two-model live script syntax
+        run: bash -n scripts/live_two_model_probe.sh
+      - name: Validate pinned-model smoke script
+        run: bash -n scripts/live_pinned_pipeline_probe.sh
       - name: Run bounded offline life trial
-        run: bash scripts/full_life_test.sh
+        run: bash scripts/cloud_check.sh

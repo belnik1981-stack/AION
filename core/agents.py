@@ -8,25 +8,33 @@ Governance-контекст и может быть запущена на явн�
 import os
 
 from core.llm import ask_llm
+from providers.base import (
+    ProviderError,
+    ProviderHTTPError,
+    ProviderRateLimitError,
+    ProviderResponseTooLargeError,
+    ProviderTruncatedError,
+)
+from core.runtime_budget import RuntimeLimitError
 from core.truth import get_principles, get_execution_limits
 
 
 ROLE_INSTRUCTIONS = {
     "planner": (
         "Ты — Planner. Составь краткий рабочий план проверки. "
-        "Не пиши длинные объяснения. Максимум 6 пунктов. "
+        "Максимум 3 коротких пункта, до 80 слов. "
         "Не описывай планируемые шаги как уже фактически выполненные."
     ),
     "analyst": (
         "Ты — Analyst. Проведи содержательный анализ по плану. "
-        "Сосредоточься только на аргументах, неопределённостях и проверяемых выводах. "
+        "Максимум 6 кратких предложений. Выдели аргументы, неопределённости и проверяемые выводы. "
         "Не утверждай, что pipeline выполнил конкретное число итераций или внешних действий, "
         "если такая телеметрия явно не передана во входном материале."
     ),
     "critic": (
         "Ты — Critic. Найди только реальные ошибки, противоречия, пропуски и обрывы. "
         "Если существенных дефектов нет — ответь ровно 'OK'. "
-        "Если есть — максимум 3 коротких пункта без длинных объяснений."
+        "Если есть — максимум 3 коротких пункта, не более 60 слов."
     ),
     "verifier": (
         "Ты — Final Verifier. Верни строго ОДНУ строку и ничего больше. "
@@ -36,21 +44,36 @@ ROLE_INSTRUCTIONS = {
     "synthesizer": (
         "Ты — Synthesizer. Сформируй завершённый финальный ответ. "
         "Исправь замечания Critic. Не копируй промежуточные тексты целиком. "
-        "Ответ должен иметь явный итоговый вывод и не обрываться."
+        "Ответ должен иметь явный итоговый вывод, 4–8 коротких предложений и не обрываться."
     ),
 }
 
 
+def _ceiling() -> int:
+    # A hard per-role cap prevents accidentally unbounded response budgets.
+    ceiling = int(os.getenv("AION_ROLE_TOKEN_CEILING", "4096"))
+    if ceiling < 128 or ceiling > 8192:
+        raise ValueError("AION_ROLE_TOKEN_CEILING должен быть в диапазоне 128..8192")
+    return ceiling
+
+
 def _budget(name: str, default: int) -> int:
-    return max(64, int(os.getenv(name, default)))
+    requested = int(os.getenv(name, str(default)))
+    if requested <= 0:
+        raise ValueError(f"{name} должен быть положительным")
+    return min(max(64, requested), _ceiling())
 
 
 ROLE_BUDGETS = {
-    "planner": lambda: _budget("AION_PLANNER_TOKENS", 220),
-    "analyst": lambda: _budget("AION_ANALYST_TOKENS", 420),
-    "critic": lambda: _budget("AION_CRITIC_TOKENS", 260),
-    "verifier": lambda: _budget("AION_FINAL_CRITIC_TOKENS", 700),
-    "synthesizer": lambda: _budget("AION_SYNTHESIZER_TOKENS", 700),
+    # A live free reasoning model exhausted 512 and the single 1024-token
+    # retry before producing Planner content.  The catalog gate already
+    # requires >=3200 completion tokens, so start at 1600 and retain one
+    # bounded retry up to the immutable per-role ceiling.
+    "planner": lambda: _budget("AION_PLANNER_TOKENS", 1600),
+    "analyst": lambda: _budget("AION_ANALYST_TOKENS", 900),
+    "critic": lambda: _budget("AION_CRITIC_TOKENS", 1600),
+    "verifier": lambda: _budget("AION_FINAL_CRITIC_TOKENS", 1200),
+    "synthesizer": lambda: _budget("AION_SYNTHESIZER_TOKENS", 1400),
 }
 
 
@@ -63,7 +86,8 @@ def governance_context() -> str:
         f"{principle_lines}\n\n"
         "ОГРАНИЧЕНИЯ ВЫПОЛНЕНИЯ:\n"
         f"- max_iterations: {limits['max_iterations']}\n"
-        f"- timeout_seconds: {limits['timeout_seconds']}\n\n"
+        f"- timeout_seconds: {limits['timeout_seconds']}\n"
+        f"- multi_model_timeout_seconds: {limits['multi_model_timeout_seconds']}\n\n"
         "Не изменяй эти принципы и не выдавай неподтверждённое за установленный факт."
     )
 
@@ -75,12 +99,39 @@ def _ask(role: str, content: str, model: str | None = None) -> str:
         f"РАБОЧИЙ МАТЕРИАЛ:\n{content}"
     )
     try:
-        result = ask_llm(prompt, max_tokens=ROLE_BUDGETS[role](), model=model)
+        budget = ROLE_BUDGETS[role]()
+        try:
+            result = ask_llm(prompt, max_tokens=budget, model=model)
+        except ProviderTruncatedError:
+            # Exactly one bounded retry for a truncated answer, never for HTTP 429.
+            # Never treat the incomplete first response as successful output.
+            enabled = os.getenv("AION_TRUNCATION_RETRY", "1").strip().lower() in ("1", "true", "yes", "on")
+            next_budget = min(_ceiling(), max(budget + 256, budget * 2))
+            if not enabled or next_budget <= budget:
+                raise
+            result = ask_llm(prompt, max_tokens=next_budget, model=model)
         if not isinstance(result, str) or not result.strip():
             raise ValueError("LLM вернула пустой ответ")
         return result.strip()
-    except Exception as e:
-        return f"[ОШИБКА:{role}] {e}"
+    except RuntimeLimitError as exc:
+        return f"[ОШИБКА:{role}] {exc.code}"
+    except ProviderRateLimitError:
+        return f"[ОШИБКА:{role}] provider_rate_limited"
+    except ProviderResponseTooLargeError:
+        return f"[ОШИБКА:{role}] provider_response_too_large"
+    except ProviderTruncatedError:
+        return f"[ОШИБКА:{role}] provider_response_truncated"
+    except ProviderHTTPError as exc:
+        # Only expose a valid numeric status, never arbitrary exception fields.
+        status = exc.status_code
+        safe_status = status if type(status) is int and 100 <= status <= 599 else "unknown"
+        return f"[ОШИБКА:{role}] provider_http_{safe_status}"
+    except ProviderError:
+        return f"[ОШИБКА:{role}] provider_failure"
+    except Exception:
+        # Provider exception text may contain API credentials, prompts or account data.
+        # Never echo untrusted exception messages to the user or persisted reports.
+        return f"[ОШИБКА:{role}] role_execution_failed"
 
 
 def planner(task: str, model: str | None = None) -> str:

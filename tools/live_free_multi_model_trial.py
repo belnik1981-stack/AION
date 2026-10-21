@@ -1,0 +1,251 @@
+"""Bounded two-model live comparison on explicitly selected, free-only models.
+
+Reuse the proven single-model readiness probe and catalog selector. Never
+interpret a model's verdict or agreement as independently verified truth.
+"""
+import os
+import sys
+from urllib.error import HTTPError, URLError
+
+from core.pipeline import _raw_answer_attempt, run_pipeline
+from tools.live_free_pipeline_trial import _hash_truth
+from tools.select_free_openrouter_model import catalog_candidates
+
+
+MAX_PREFLIGHT_CANDIDATES = 8
+PREFLIGHT_RECOVERABLE_HTTP = frozenset({400, 404, 500, 502, 503, 504})
+PREFLIGHT_RECOVERABLE_STATES = frozenset({
+    "invalid_response",
+    "provider_error",
+    "response_too_large",
+    "truncated",
+})
+TEST_TASK = (
+    "Сравни два объяснения и сохрани неопределённость: "
+    "почему наблюдаемое совпадение само по себе не доказывает причинную связь?"
+)
+
+
+def _author(model_id):
+    return model_id.split("/", 1)[0]
+
+
+def _candidate_models(catalog, requested=None):
+    """Preserve explicit IDs. For automatic selection prefer different authors.
+
+    Catalog eligibility is necessary, but different publisher names and IDs
+    alone do not prove truly independent training or external factual support.
+    """
+    if requested:
+        named = [part.strip() for part in requested.split(",")]
+        if (len(named) != 2 or any(not m or m == "openrouter/free" for m in named)
+                or len(set(named)) != 2 or len({_author(m) for m in named}) != 2):
+            raise ValueError("Specify exactly two distinct explicit :free model IDs from different authors")
+        missing = [m for m in named if m not in catalog]
+        if missing:
+            raise ValueError("At least one requested model fails current free-model catalog eligibility")
+        return named
+
+    # Current authenticated catalog order already prefers usable non-mandatory
+    # reasoning models.  Do not pin a once-successful model forever: live
+    # availability changes and less-known eligible alternatives are valid.
+    return list(catalog)[:MAX_PREFLIGHT_CANDIDATES]
+
+
+def _collect_two_raw_answers(candidates, explicit=False, attempt=None):
+    """Use the REAL comparison task for readiness and reuse completed answers.
+
+    This avoids spending two extra provider requests on easy 2+2 prompts,
+    then failing at the first meaningful prompt. No duplicate raw requests
+    after model selection, even when the model catalog changes.
+    """
+    attempt = attempt or _raw_answer_attempt
+    answers = {}
+    for mid in candidates:
+        if len(answers) == 2:
+            break
+        if _author(mid) in {_author(m) for m in answers}:
+            continue
+        print("[RAW PREFLIGHT]", mid, flush=True)
+        outcome = attempt(TEST_TASK, mid)
+        if not isinstance(outcome, dict):
+            print("[RAW ERROR]", mid, "invalid_status", flush=True)
+            return None
+        state = outcome.get("status", "invalid_status")
+        status_code = outcome.get("http_status")
+        if state == "ok":
+            answer = outcome.get("answer")
+            if not isinstance(answer, str) or not answer.strip():
+                state = "invalid_response"
+            else:
+                answers[mid] = answer
+                print("[PASS] Complete independent raw answer:", mid, flush=True)
+                continue
+        # Categorize from typed exceptions, never parse untrusted error text.
+        print("[RAW ERROR]", mid, state,
+              "HTTP " + str(status_code) if type(status_code) is int else "",
+              flush=True)
+        if state == "rate_limited" or status_code == 429:
+            scope = outcome.get("rate_limit_scope", "unknown")
+            retry_after = outcome.get("retry_after_seconds")
+            print("[RATE LIMIT SCOPE]", scope, flush=True)
+            if type(retry_after) is int:
+                print("[RETRY AFTER]", retry_after, "seconds", flush=True)
+            if scope == "upstream_provider" and not explicit:
+                print(
+                    "[FALLBACK] Upstream provider is limited; trying a different "
+                    "free model without retrying the failed model.",
+                    flush=True,
+                )
+                continue
+            print("[FAIL] HTTP 429: no further model requests.", flush=True)
+            return None
+        if explicit:
+            return None
+        if state in PREFLIGHT_RECOVERABLE_STATES:
+            continue
+        if state == "http_error" and status_code in PREFLIGHT_RECOVERABLE_HTTP:
+            continue
+        # Access, policy, billing, unknown errors must not trigger retries.
+        return None
+
+    if len(answers) != 2:
+        print("[FAIL] Two finished independent raw answers were not obtained.", flush=True)
+        return None
+    return answers
+
+
+def _safe_preview(value):
+    # The trial uses a fixed public prompt, but don't disclose more than a
+    # brief response excerpt. Control chars and log delimiters are escaped.
+    compact = " ".join(str(value).split())
+    return compact[:350]
+
+
+def execute():
+    before = _hash_truth()
+    try:
+        key = os.getenv("AION_API_KEY", "")
+        if not key:
+            print("[FAIL] Provider credentials absent.", flush=True)
+            return 2
+        requested = os.getenv("AION_MODELS", "").strip()
+        if requested == "openrouter/free":
+            requested = ""
+        # Hard restrictions apply even if the launcher environment is changed.
+        os.environ["AION_FREE_ONLY"] = "1"
+        os.environ["AION_PROVIDER"] = "openai_compatible"
+        os.environ["AION_API_URL"] = "https://openrouter.ai/api/v1"
+        os.environ["AION_REASONING_EFFORT"] = "none"
+        os.environ["AION_MULTI_TEST_ROUNDS"] = "1"
+        print("[CATALOG] Verifying two free models before role execution.", flush=True)
+        try:
+            catalog = catalog_candidates(key)
+            candidates = _candidate_models(catalog, requested=requested)
+        except HTTPError as exc:
+            print("[FAIL] Catalog HTTP", exc.code, flush=True)
+            return 2
+        except (URLError, TimeoutError, ValueError, KeyError, TypeError):
+            print("[FAIL] Two free models cannot be verified from catalog.", flush=True)
+            return 2
+        print("[CATALOG] Eligible free models:", len(catalog), flush=True)
+        # Raw prompts are the real workload. Reuse the two completed initial
+        # answers downstream, avoiding a redundant request after preflight.
+        os.environ["AION_EVIDENCE_BUNDLE"] = ""
+        os.environ["AION_DISABLE_REASONING"] = "0"
+        raw_answers = _collect_two_raw_answers(candidates, explicit=bool(requested))
+        if raw_answers is None:
+            print("[FAIL] MULTI RAW PREFLIGHT; role execution not started.", flush=True)
+            return 4
+        two = list(raw_answers)
+        os.environ["AION_MODEL"] = two[0]
+        os.environ["AION_MODELS"] = ",".join(two)
+        print("[PASS] TWO DISTINCT MODEL IDS:", ", ".join(two), flush=True)
+        print("[MODE] Two complete initial answers reused; one comparison round.", flush=True)
+        result = run_pipeline(TEST_TASK, initial_raw_answers=raw_answers)
+        if not isinstance(result, dict):
+            print("[FAIL] Pipeline returned invalid result.", flush=True)
+            return 1
+        runtime_budget = result.get("runtime_budget")
+        if isinstance(runtime_budget, dict):
+            print(
+                "[RUNTIME BUDGET]",
+                "elapsed_seconds=" + str(runtime_budget.get("elapsed_seconds", "unknown")),
+                "timeout_seconds=" + str(runtime_budget.get("timeout_seconds", "unknown")),
+                "calls_used=" + str(runtime_budget.get("calls_used", "unknown")),
+                flush=True,
+            )
+        if result.get("status") == "error":
+            print("[FAIL] MULTI MODEL PIPELINE", flush=True)
+            print("[STATUS]", result.get("status"), flush=True)
+            print("[STAGE]", result.get("stage", "unknown"), flush=True)
+            if result.get("detail"):
+                print("[DETAIL]", _safe_preview(result["detail"]), flush=True)
+            for mid, diag in (result.get("raw_diagnostics") or {}).items():
+                if isinstance(diag, dict):
+                    print("[RAW DIAG]", mid, diag.get("status", "unknown"),
+                          diag.get("http_status", ""), flush=True)
+            return 1
+        if (result.get("mode") != "multi_model_role_rotation"
+                or result.get("independent_model_count") != 2
+                or result.get("models") != two
+                or result.get("model_ids_distinct") is not True
+                or len(result.get("raw_answers", {})) != 2):
+            print("[FAIL] Model independence contract not met.", flush=True)
+            print("[STATUS]", result.get("status", "unknown"), flush=True)
+            print("[STAGE]", result.get("stage", "model_contract"), flush=True)
+            return 1
+        raw = result["raw_answers"]
+        if any(not isinstance(raw.get(mid), str) or raw[mid].startswith("[ОШИБКА")
+               or not raw[mid].strip() for mid in two):
+            print("[FAIL] One initial answer is missing or rejected.", flush=True)
+            return 1
+        for i, mid in enumerate(two, 1):
+            print("[RAW MODEL", i, "]", mid, flush=True)
+            print("[RAW EXCERPT]", _safe_preview(raw[mid]), flush=True)
+        print("[RAW TEXTS IDENTICAL]", raw[two[0]].strip() == raw[two[1]].strip(), flush=True)
+        print("[VERIFICATION]", result.get("verification_scope"), flush=True)
+        print("[TRUTH VERIFIED]", result.get("truth_verified"), flush=True)
+        rounds = result.get("rounds")
+        accepted_round = (
+            isinstance(rounds, list) and len(rounds) == 1
+            and result.get("rotations_used") == 1
+            and isinstance(rounds[0], dict)
+            and rounds[0].get("accepted") is True
+        )
+        assignments = rounds[0].get("role_assignment") if accepted_round else None
+        expected_roles = {"planner", "analyst", "critic", "synthesizer", "verifier"}
+        valid_roles = (
+            isinstance(assignments, dict)
+            and set(assignments) == expected_roles
+            and set(assignments.values()) == set(two)
+        )
+        if valid_roles:
+            print("[ROLES]", ", ".join(
+                role + "=" + assignments[role]
+                for role in ("planner", "analyst", "critic", "synthesizer", "verifier")
+            ), flush=True)
+        if (result.get("status") != "ok"
+                or not isinstance(result.get("final_answer"), str)
+                or not result["final_answer"].strip()
+                or not accepted_round or not valid_roles
+                or result.get("truth_verified") is not False
+                or result.get("verification_scope") != "llm_review_only"):
+            print("[FAIL] MULTI MODEL PIPELINE", flush=True)
+            print("[STATUS]", result.get("status", "missing"), flush=True)
+            print("[STAGE]", result.get("stage", "verification_or_rotation"), flush=True)
+            print("[ROUNDS]", result.get("rotations_used", 0), flush=True)
+            return 1
+        print("[PASS] MULTI MODEL PIPELINE", flush=True)
+        print("[NOTE] This confirms LLM review, NOT objective truth.", flush=True)
+        return 0
+    finally:
+        after = _hash_truth()
+        if before != after:
+            print("[FAIL] Truth modified during multi-model live test.", file=sys.stderr)
+            raise SystemExit(3)
+        print("[PASS] Truth unchanged", flush=True)
+
+
+if __name__ == "__main__":
+    raise SystemExit(execute())
