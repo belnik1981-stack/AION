@@ -275,7 +275,7 @@ PY
   export AION_TEST_VENV_DIR="$VENV_PATH"
   export AION_TEST_REPORT_DIR="$TEMP_ROOT/full-life-reports"
   export AION_LIVE_TEST=0
-  unset AION_API_KEY AION_MODELS AION_MODEL
+  unset AION_API_KEY AION_MODELS AION_MODEL AION_EXPECTED_SHA
   bash scripts/cloud_check.sh
 )
 pass_stage "$CURRENT_STAGE"
