@@ -3,6 +3,23 @@
 Это инструкция для владельца проекта после слияния проверенной версии в `master`. 
 Режим по умолчанию — **офлайн**, без внешних моделей, платы за API и необходимости вводить ключ.
 
+## Termux на Android
+
+Выполняйте команды в Termux, в новой копии проекта:
+
+```bash
+pkg update -y
+pkg install -y git python python-ensurepip-wheels clang make coreutils
+git clone --branch master https://github.com/belnik1981-stack/AION.git ~/AION-personal-test
+cd ~/AION-personal-test
+bash scripts/owner_acceptance_test.sh
+```
+
+На Termux виртуальная среда иногда создаётся без `pip`. Launcher проверяет
+это и запускает `ensurepip` только в отдельной тестовой среде. При успехе
+ожидается `[ACCEPTANCE PASS]` с `live=SKIP`; для реального теста двух
+моделей следуйте разделу 5. Не вводите ключ OpenRouter в файл или чат.
+
 ## 1. Подготовка Ubuntu/Debian
 
 ```bash
