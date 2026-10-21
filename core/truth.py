@@ -118,6 +118,9 @@ def get_execution_limits() -> dict[str, int]:
     try:
         max_iterations = int(execution["max_iterations"])
         timeout_seconds = int(execution["timeout_seconds"])
+        multi_model_timeout_seconds = int(
+            execution.get("multi_model_timeout_seconds", timeout_seconds)
+        )
     except (KeyError, TypeError, ValueError) as exc:
         raise TruthError(
             "В system.yaml отсутствуют корректные execution limits"
@@ -133,9 +136,15 @@ def get_execution_limits() -> dict[str, int]:
             "timeout_seconds должен быть > 0"
         )
 
+    if not timeout_seconds <= multi_model_timeout_seconds <= 180:
+        raise TruthError(
+            "multi_model_timeout_seconds должен быть между timeout_seconds и 180"
+        )
+
     return {
         "max_iterations": max_iterations,
         "timeout_seconds": timeout_seconds,
+        "multi_model_timeout_seconds": multi_model_timeout_seconds,
     }
 
 

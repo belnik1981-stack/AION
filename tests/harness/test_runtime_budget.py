@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from core import llm, pipeline
 from core.runtime_budget import ExecutionBudget, RuntimeLimitError, use_budget
+from core.truth import get_execution_limits
 from providers.base import (
     ProviderHTTPError,
     ProviderRateLimitError,
@@ -61,6 +62,21 @@ with patch.object(llm, "create_provider", fake_create_provider):
 assert len(created) == 1
 assert created[0][0] == "model-a:free"
 assert 0 < created[0][1] <= 5
+
+
+# The longer Truth deadline applies only to a real multi-model selection.
+truth_limits = get_execution_limits()
+assert 0 < truth_limits["timeout_seconds"] < truth_limits["multi_model_timeout_seconds"] <= 180
+with patch.dict(os.environ, {"AION_MODELS": "", "AION_MODEL": "model-a:free"}, clear=False):
+    with patch.object(pipeline, "_run_pipeline_with_budget", return_value={"status": "ok"}):
+        single_run = pipeline.run_pipeline("task")
+with patch.dict(os.environ, {
+    "AION_MODELS": "model-a:free,model-b:free",
+}, clear=False):
+    with patch.object(pipeline, "_run_pipeline_with_budget", return_value={"status": "ok"}):
+        multi_run = pipeline.run_pipeline("task")
+assert single_run["runtime_budget"]["timeout_seconds"] == truth_limits["timeout_seconds"]
+assert multi_run["runtime_budget"]["timeout_seconds"] == truth_limits["multi_model_timeout_seconds"]
 
 
 # Five explicit model IDs are rejected before any provider call.

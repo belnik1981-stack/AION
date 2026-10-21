@@ -86,7 +86,8 @@ def governance_context() -> str:
         f"{principle_lines}\n\n"
         "ОГРАНИЧЕНИЯ ВЫПОЛНЕНИЯ:\n"
         f"- max_iterations: {limits['max_iterations']}\n"
-        f"- timeout_seconds: {limits['timeout_seconds']}\n\n"
+        f"- timeout_seconds: {limits['timeout_seconds']}\n"
+        f"- multi_model_timeout_seconds: {limits['multi_model_timeout_seconds']}\n\n"
         "Не изменяй эти принципы и не выдавай неподтверждённое за установленный факт."
     )
 

@@ -166,6 +166,15 @@ def execute():
         if not isinstance(result, dict):
             print("[FAIL] Pipeline returned invalid result.", flush=True)
             return 1
+        runtime_budget = result.get("runtime_budget")
+        if isinstance(runtime_budget, dict):
+            print(
+                "[RUNTIME BUDGET]",
+                "elapsed_seconds=" + str(runtime_budget.get("elapsed_seconds", "unknown")),
+                "timeout_seconds=" + str(runtime_budget.get("timeout_seconds", "unknown")),
+                "calls_used=" + str(runtime_budget.get("calls_used", "unknown")),
+                flush=True,
+            )
         if result.get("status") == "error":
             print("[FAIL] MULTI MODEL PIPELINE", flush=True)
             print("[STATUS]", result.get("status"), flush=True)
