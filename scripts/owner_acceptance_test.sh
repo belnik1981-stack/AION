@@ -136,7 +136,6 @@ PY
 runtime_digest() {
   "$BOOTSTRAP_PYTHON" - "$ROOT" <<'PY'
 import hashlib
-import os
 from pathlib import Path
 import sys
 
@@ -158,8 +157,7 @@ def add_path(path: Path) -> None:
     digest.update(len(relative).to_bytes(8, "big"))
     digest.update(relative)
     if path.is_symlink():
-        digest.update(b"L" + os.readlink(path).encode("utf-8", "surrogateescape"))
-        return
+        raise SystemExit("[FAIL] Symlinked protected runtime data cannot be integrity-checked")
     if not path.exists():
         digest.update(b"A")
         return

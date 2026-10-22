@@ -119,6 +119,15 @@ with tempfile.TemporaryDirectory() as temp_dir:
     assert (base / "offline-count.txt").read_text().count("run") == 3
     runtime_state.unlink()
 
+    external_history = base / "external-history.json"
+    external_history.write_text('[{"outside": true}]\n', encoding="utf-8")
+    runtime_link = project / "knowledge" / "episodic" / "external.json"
+    runtime_link.symlink_to(external_history)
+    linked_data = run("scripts/owner_acceptance_test.sh", "--local-revision", cwd=project, env=env)
+    assert linked_data.returncode != 0
+    assert "Symlinked protected runtime data" in linked_data.stdout
+    runtime_link.unlink()
+
     protected_report_env = dict(env)
     protected_report_env["AION_TEST_REPORT_DIR"] = str(
         project / "knowledge" / "episodic" / "reports"
