@@ -470,23 +470,34 @@ def shortcut_plan(home, data):
         raise WidgetError("Bash is required.")
     for variant, label in VARIANTS.items():
         target = directory / ("AION " + label)
-        if target.is_symlink() or (target.exists() and SHORTCUT_MARKER not in target.read_text()):
+        if target.is_symlink() or (target.exists() and SHORTCUT_MARKER not in target.read_text()
+                                   and not legacy_shortcut(target)):
             raise WidgetError(f"Shortcut {target.name} already exists and is not managed; it was preserved.")
         command = shlex.join([sys.executable, str(data / "launcher.py"), "--home-dir", str(home), "start", variant])
         scripts[target] = f"#!{bash}\n{SHORTCUT_MARKER}\nexec {command}\n"
     return scripts
 
 
+def legacy_shortcut(path):
+    names = {"AION", "aion", "AION.sh", "aion.sh", "start_aion.sh", "AION MASTER", "AION TEST PR"}
+    if path.name not in names or path.is_symlink() or not path.is_file():
+        return False
+    text = path.read_text(errors="replace")
+    launch = re.search(
+        r"(?:^|;)\s*(?:exec\s+)?(?:python(?:3(?:\.\d+)?)?|bash|sh)\s+"
+        r"(?:-u\s+)?[^\n;]*(?:start_app\.sh|server\.py)(?=[\"'\s;]|$)", text, re.M)
+    direct = re.search(
+        r"(?:^|;)\s*(?:exec\s+)?[\"']?(?:\./|\$HOME/|\$\{HOME\}/|~/|/)"
+        r"[^\n;]*start_app\.sh[\"']?(?=\s|$)", text, re.M)
+    return "AION" in text and bool(launch or direct)
+
+
 def retire_old_shortcuts(home, data):
-    names = {"AION", "aion", "AION.sh", "aion.sh", "start_aion.sh"}
     for directory in (home / ".shortcuts", home / ".shortcuts/tasks"):
         if not directory.is_dir():
             continue
         for old in directory.iterdir():
-            if old.name not in names or old.is_symlink() or not old.is_file():
-                continue
-            text = old.read_text(errors="replace")
-            if "AION" not in text or not ("start_app.sh" in text or "server.py" in text):
+            if not legacy_shortcut(old):
                 continue
             backup = data / "shortcut-backups" / secrets.token_hex(8)
             backup.mkdir(parents=True, mode=0o700)
@@ -562,10 +573,10 @@ def install(home, args):
                 preview.rename(test)
         write_private(data / "launcher.py", Path(__file__).read_text())
         write_json(config_file, config)
+        retire_old_shortcuts(home, data)
         for target, content in scripts.items():
             write_private(target, content)
             target.chmod(0o700)
-        retire_old_shortcuts(home, data)
         print("[PASS] Installed AION MASTER and AION TEST PR. No running server was stopped.")
         print("[MASTER] preserved:", master, "commit", git(master, "rev-parse", "--short", "HEAD"))
         print("[TEST PR] base", base[:12], "PR head", head[:12], "merge tree", tree[:12])

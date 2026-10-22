@@ -44,11 +44,20 @@ class WidgetIntegration(unittest.TestCase):
         cls.remote = cls.base / "remote.git"
         cls.seed = cls.base / "seed"
         invoke("git", "init", "--bare", "--quiet", cls.remote)
-        invoke("git", "clone", "--quiet", "--no-hardlinks", ROOT, cls.seed)
-        invoke("git", "-C", cls.seed, "switch", "-C", "master")
-        invoke("git", "-C", cls.seed, "remote", "set-url", "origin", cls.remote)
+        # GitHub Actions uses a shallow checkout. Build an independent fixture
+        # history instead of trying to push its missing ancestors to a bare repo.
+        invoke("git", "init", "--quiet", "-b", "master", cls.seed)
+        for relative in widget.git(ROOT, "ls-files", "-z").split("\0"):
+            if not relative:
+                continue
+            target = cls.seed / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / relative, target)
+        invoke("git", "-C", cls.seed, "remote", "add", "origin", cls.remote)
         invoke("git", "-C", cls.seed, "config", "user.name", "Widget fixture")
         invoke("git", "-C", cls.seed, "config", "user.email", "fixture@localhost")
+        invoke("git", "-C", cls.seed, "add", "--all")
+        invoke("git", "-C", cls.seed, "commit", "--quiet", "-m", "Independent master fixture")
         invoke("git", "-C", cls.seed, "push", "--quiet", "origin", "master")
         cls.master_sha = widget.git(cls.seed, "rev-parse", "HEAD")
         invoke("git", "-C", cls.seed, "switch", "-c", "fixture-pr")
@@ -209,6 +218,26 @@ class WidgetIntegration(unittest.TestCase):
         result = self.install(check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(original.read_text(), "owner shortcut\n")
+
+    def test_aion_named_maintenance_shortcut_is_preserved(self):
+        shortcuts = self.home / ".shortcuts"
+        shortcuts.mkdir()
+        original = shortcuts / "AION"
+        original.write_text('#!/bin/sh\necho "AION server.py maintenance notes"\n')
+        self.install()
+        self.assertTrue(original.exists())
+
+    def test_legacy_shortcut_with_new_caption_is_archived_before_replacement(self):
+        shortcuts = self.home / ".shortcuts"
+        shortcuts.mkdir()
+        original = shortcuts / "AION MASTER"
+        old_script = '#!/bin/sh\ncd "$HOME/AION"\nbash start_app.sh\n'
+        original.write_text(old_script)
+        self.install()
+        self.assertIn(widget.SHORTCUT_MARKER, original.read_text())
+        backups = list((widget.layout(self.home)[1] / "shortcut-backups").rglob("AION MASTER"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].read_text(), old_script)
 
     def test_changed_test_copy_is_preserved(self):
         self.install()
