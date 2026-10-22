@@ -169,6 +169,44 @@ class WidgetIntegration(unittest.TestCase):
         self.assertEqual(before, after)
         self.assertEqual(self.cli("status").returncode, 0)
 
+    def test_repair_restores_shortcuts_refreshes_android_and_preserves_running_server(self):
+        self.install()
+        self.cli("start", "master", "--no-browser")
+        before = widget.current_status(self.port)
+        config_file = widget.layout(self.home)[2]
+        saved_config = config_file.read_bytes()
+        shortcuts = self.home / ".shortcuts"
+        (shortcuts / "AION TEST PR").unlink()
+        unrelated = shortcuts / "Owner task"
+        unrelated.write_text("owner shortcut\n")
+        binary = self.case / "bin"
+        binary.mkdir()
+        calls = self.case / "android-broadcast"
+        am = binary / "am"
+        am.write_text("#!/bin/sh\nprintf '%s\\n' \"$@\" > " + shlex.quote(str(calls)) + "\n")
+        am.chmod(0o700)
+        self.env["PATH"] = str(binary) + os.pathsep + self.env["PATH"]
+        self.env["TERMUX_VERSION"] = "0.118.3"
+        result = self.cli("repair-widget")
+        self.assertNotIn(self.env["AION_API_KEY"], result.stdout + result.stderr)
+        self.assertEqual(widget.current_status(self.port), before)
+        self.assertEqual(config_file.read_bytes(), saved_config)
+        self.assertEqual(unrelated.read_text(), "owner shortcut\n")
+        self.assertEqual((shortcuts / "AION TEST PR").stat().st_mode & 0o777, 0o700)
+        self.assertEqual(calls.read_text().splitlines(), ["broadcast", "-n",
+            "com.termux.widget/.TermuxWidgetProvider", "-a",
+            "com.termux.widget.ACTION_REFRESH_WIDGET", "--ei", "appWidgetId", "0"])
+
+    def test_unreadable_shortcut_directory_permissions_are_repaired(self):
+        self.install()
+        shortcuts = self.home / ".shortcuts"
+        shortcuts.chmod(0o300)
+        try:
+            self.cli("repair-widget")
+            self.assertEqual(shortcuts.stat().st_mode & 0o700, 0o700)
+        finally:
+            shortcuts.chmod(0o700)
+
     def test_auto_pr_resolves_head_against_pull_ref(self):
         self.install("--pr", "auto")
         config = widget.read_json(widget.layout(self.home)[2])

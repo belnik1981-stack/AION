@@ -20,6 +20,7 @@ import shlex
 import shutil
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -464,6 +465,9 @@ def save_verified_pair(config_file, report):
 def shortcut_plan(home, data):
     directory = home / ".shortcuts"
     directory.mkdir(mode=0o700, exist_ok=True)
+    # An existing directory may lack owner read/execute permission: Widget
+    # then hides the scripts even when the files themselves are executable.
+    directory.chmod(stat.S_IMODE(directory.stat().st_mode) | 0o700)
     scripts = {}
     bash = shutil.which("bash")
     if not bash:
@@ -503,6 +507,44 @@ def retire_old_shortcuts(home, data):
             backup.mkdir(parents=True, mode=0o700)
             old.rename(backup / old.name)
             print("[ARCHIVED AION SHORTCUT]", old.name)
+
+
+def refresh_widgets():
+    """Use Termux:Widget's documented refresh broadcast, not a launcher guess."""
+    am = shutil.which("am")
+    if am and os.environ.get("TERMUX_VERSION"):
+        result = subprocess.run([am, "broadcast", "-n", "com.termux.widget/.TermuxWidgetProvider",
+            "-a", "com.termux.widget.ACTION_REFRESH_WIDGET", "--ei", "appWidgetId", "0"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if result.returncode == 0:
+            print("[ANDROID] Widget refresh requested. Confirm AION MASTER and AION TEST PR on the phone.")
+            return True
+    print("[ANDROID ACTION] Open Termux:Widget and press REFRESH to reload the script list.")
+    return False
+
+
+def repair_widget(home):
+    """Repair only managed shortcuts. Never stop AION or display/export API values."""
+    with locked(home):
+        home, data, config_file = layout(home)
+        if not config_file.is_file() or not (data / "launcher.py").is_file():
+            raise WidgetError("Widget installation is incomplete: installed launcher/configuration is missing. "
+                              "Run scripts/install_termux_widget.sh --pr 45 --verify first.")
+        config = read_json(config_file)
+        if config.get("managed_by") != MARKER:
+            raise WidgetError("Existing widget configuration is not managed by AION; it was preserved.")
+        for variant in VARIANTS:
+            item = config["variants"][variant]
+            if not (Path(item["repo"]) / "server.py").is_file() or not os.access(item["python"], os.X_OK):
+                raise WidgetError("AION checkout or its Python is missing; complete installation first.")
+        scripts = shortcut_plan(home, data)
+        retire_old_shortcuts(home, data)
+        for target, content in scripts.items():
+            write_private(target, content)
+            target.chmod(0o700)
+            print("[PASS]", target.name, "executable shortcut exists")
+        refresh_widgets()
+        print("[PASS] Shortcut repair complete. Running AION, both repositories and provider settings were preserved.")
 
 
 def install(home, args):
@@ -583,6 +625,7 @@ def install(home, args):
         if git(master, "rev-parse", "HEAD") != base:
             print("[NOTE] Existing MASTER differs from current remote master; it was deliberately not updated.")
         print("[CONFIG] private file:", config_file, "(key never printed)")
+        refresh_widgets()
 
 
 def main(argv=None):
@@ -606,6 +649,7 @@ def main(argv=None):
             sub.add_argument("--no-browser", action="store_true")
     commands.add_parser("status")
     commands.add_parser("stop")
+    commands.add_parser("repair-widget", help="Restore the two widget commands without changing or stopping AION")
     live = commands.add_parser("live-test")
     live.add_argument("variant", choices=VARIANTS)
     args = parser.parse_args(argv)
@@ -626,6 +670,8 @@ def main(argv=None):
             start(args.home_dir, args.variant, not args.no_browser)
         elif args.command == "serve":
             serve(args.home_dir, args.variant)
+        elif args.command == "repair-widget":
+            repair_widget(args.home_dir)
         elif args.command == "status":
             config = read_json(layout(args.home_dir)[2])
             status = current_status(config["port"])
