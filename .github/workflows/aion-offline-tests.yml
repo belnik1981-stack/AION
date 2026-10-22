@@ -141,3 +141,6 @@ jobs:
 
       - name: Run real loopback HTTP smoke
         run: python tests/harness/test_server_http_smoke.py
+
+      - name: Verify Termux widget installation and version switching offline
+        run: python tests/harness/test_termux_widget.py

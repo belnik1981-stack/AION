@@ -71,6 +71,7 @@ bash start_app.sh
 
 ## Документация
 
+- [MASTER и TEST PR через Termux:Widget](docs/TERMUX_WIDGET.md)
 - [Архитектура и QA испытательного образца](docs/TEST_SPECIMEN.md)
 - [Текущее доказанное состояние](docs/PROJECT_STATE.md)
 - [Полная инструкция Termux/cloud](docs/CLOUD_FULL_LIFE_TRIAL_RUNBOOK_2026-10-15.md)

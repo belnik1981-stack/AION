@@ -57,7 +57,8 @@ for test_file in \
   tests/harness/test_cycle_guard.py \
   tests/harness/test_pipeline_cycle_regression.py \
   tests/harness/test_server_safety.py \
-  tests/harness/test_server_http_smoke.py
+  tests/harness/test_server_http_smoke.py \
+  tests/harness/test_termux_widget.py
 do
   echo "[TEST] $test_file"
   python "$test_file"
