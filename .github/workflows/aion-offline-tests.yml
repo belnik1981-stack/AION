@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Verify agent instructions are available
+        run: test -s AGENTS.md && test -s .github/copilot-instructions.md
 
       - name: Set up Python
         uses: actions/setup-python@v5

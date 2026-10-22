@@ -29,6 +29,7 @@ from core.runtime_budget import (
     ExecutionBudget,
     RuntimeLimitError,
     configured_call_limit,
+    current_budget,
     use_budget,
 )
 from providers.base import (
@@ -585,13 +586,16 @@ def run_pipeline(task: str, *, initial_raw_answers: dict | None = None) -> dict:
     max_iterations = int(limits.get("max_iterations", 2))
     multi_model = len(_models()) >= 2
     try:
-        budget = ExecutionBudget(
-            timeout_seconds=float(
-                limits.get("multi_model_timeout_seconds", limits["timeout_seconds"])
-                if multi_model else limits["timeout_seconds"]
-            ),
-            max_calls=configured_call_limit(),
+        allowed_timeout = float(
+            limits.get("multi_model_timeout_seconds", limits["timeout_seconds"])
+            if multi_model else limits["timeout_seconds"]
         )
+        allowed_calls = configured_call_limit()
+        budget = current_budget()
+        if budget is None:
+            budget = ExecutionBudget(timeout_seconds=allowed_timeout, max_calls=allowed_calls)
+        elif budget.timeout_seconds > allowed_timeout or budget.max_calls > allowed_calls:
+            raise ValueError("Ambient execution budget exceeds Truth limits")
     except (KeyError, TypeError, ValueError):
         return {
             "status": "error",

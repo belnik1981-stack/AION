@@ -3,7 +3,7 @@ import io
 import json
 import os
 from unittest.mock import patch
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 from core import agents
 from providers.base import (
@@ -267,6 +267,15 @@ with patch.dict(os.environ, {"AION_MAX_RESPONSE_BYTES": "1024"}, clear=False):
             raise AssertionError("Oversized provider response must fail closed")
 
 secret_marker = "PRIVATE-EXCEPTION-METADATA"
+with patch("providers.openai_compatible.urlopen", lambda req, timeout: (_ for _ in ()).throw(URLError(secret_marker))):
+    try:
+        provider().ask("safe test", max_tokens=128)
+    except ProviderError as exc:
+        assert secret_marker not in str(exc), str(exc)
+        assert "подробности скрыты" in str(exc), str(exc)
+    else:
+        raise AssertionError("Connection interruption must fail closed")
+
 with patch("providers.openai_compatible.urlopen", lambda req, timeout: (_ for _ in ()).throw(RuntimeError(secret_marker))):
     try:
         provider().ask("safe test", max_tokens=128)

@@ -78,6 +78,24 @@ with patch.dict(os.environ, {
 assert single_run["runtime_budget"]["timeout_seconds"] == truth_limits["timeout_seconds"]
 assert multi_run["runtime_budget"]["timeout_seconds"] == truth_limits["multi_model_timeout_seconds"]
 
+# Completed live preflight calls remain charged to the role execution budget.
+shared = ExecutionBudget(
+    timeout_seconds=truth_limits["multi_model_timeout_seconds"], max_calls=3
+)
+shared.reserve_call()
+shared.reserve_call()
+with patch.dict(os.environ, {"AION_MODELS": "model-a:free,model-b:free", "AION_MAX_LLM_CALLS": "3"}):
+    with use_budget(shared), patch.object(
+        pipeline, "_run_pipeline_with_budget", return_value={"status": "ok"}
+    ):
+        reused = pipeline.run_pipeline("compare")
+assert reused["runtime_budget"]["calls_used"] == 2, reused
+oversized = ExecutionBudget(timeout_seconds=truth_limits["multi_model_timeout_seconds"] + 1, max_calls=3)
+with patch.dict(os.environ, {"AION_MODELS": "model-a:free,model-b:free", "AION_MAX_LLM_CALLS": "3"}):
+    with use_budget(oversized):
+        rejected_ambient = pipeline.run_pipeline("compare")
+assert rejected_ambient["stage"] == "runtime_limits", rejected_ambient
+
 
 # Five explicit model IDs are rejected before any provider call.
 with patch.dict(os.environ, {

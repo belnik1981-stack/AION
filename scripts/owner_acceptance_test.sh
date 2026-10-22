@@ -5,7 +5,7 @@ umask 077
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/owner_acceptance_test.sh [--offline|--live] [--local-revision]
+Usage: bash scripts/owner_acceptance_test.sh [--offline|--live] [--local-revision] [--fresh]
 
 Default mode validates that the checkout is a clean, current origin/master and
 runs the offline acceptance suite in an isolated local clone.
@@ -15,6 +15,8 @@ runs the offline acceptance suite in an isolated local clone.
                      trial. Requires AION_API_KEY; free-only policy is forced.
   --local-revision   Validate the current clean commit without fetching or
                      claiming that it is current master (intended for CI/dev).
+  --fresh            Rerun offline tests even when a verified local checkpoint
+                     exists for this exact revision and intact project data.
   --help             Show this help.
 
 Optional environment:
@@ -27,12 +29,14 @@ EOF
 }
 
 LIVE_MODE=0
+FRESH_MODE=0
 REVISION_SCOPE="release_master"
 while (($#)); do
   case "$1" in
     --offline) LIVE_MODE=0 ;;
     --live) LIVE_MODE=1 ;;
     --local-revision) REVISION_SCOPE="local_revision" ;;
+    --fresh) FRESH_MODE=1 ;;
     --help|-h) usage; exit 0 ;;
     *) echo "[FAIL] Unknown argument. Use --help." >&2; exit 2 ;;
   esac
@@ -132,7 +136,6 @@ PY
 runtime_digest() {
   "$BOOTSTRAP_PYTHON" - "$ROOT" <<'PY'
 import hashlib
-import os
 from pathlib import Path
 import sys
 
@@ -154,8 +157,7 @@ def add_path(path: Path) -> None:
     digest.update(len(relative).to_bytes(8, "big"))
     digest.update(relative)
     if path.is_symlink():
-        digest.update(b"L" + os.readlink(path).encode("utf-8", "surrogateescape"))
-        return
+        raise SystemExit("[FAIL] Symlinked protected runtime data cannot be integrity-checked")
     if not path.exists():
         digest.update(b"A")
         return
@@ -234,6 +236,17 @@ PRIMARY_RUNTIME_BEFORE="$(runtime_digest)"
 PRIMARY_TRUTH_BEFORE="$(truth_digest)"
 pass_stage "$CURRENT_STAGE"
 
+CURRENT_STAGE="offline_checkpoint"
+OFFLINE_REUSED=0
+if (( ! FRESH_MODE )) && "$BOOTSTRAP_PYTHON" tools/acceptance_checkpoint.py verify \
+    "$REPORT_DIR" "$REVISION" "$REVISION_SCOPE" \
+    "$PRIMARY_TRUTH_BEFORE" "$PRIMARY_RUNTIME_BEFORE"; then
+  OFFLINE_REUSED=1
+  echo "[STAGE REUSED] offline_life_trial: verified local evidence for exact revision and project data"
+else
+  echo "[STAGE PENDING] offline_life_trial: no valid matching checkpoint"
+fi
+
 CURRENT_STAGE="isolated_checkout"
 TEMP_BASE="$($BOOTSTRAP_PYTHON - "${TMPDIR:-/tmp}" <<'PY'
 from pathlib import Path
@@ -244,14 +257,18 @@ PY
 [[ "$TEMP_BASE/" != "$ROOT_RESOLVED/"* ]] \
   || fail_stage "TMPDIR must be outside the repository."
 mkdir -p "$TEMP_BASE"
-TEMP_ROOT="$(mktemp -d "${TEMP_BASE%/}/aion-owner-acceptance.XXXXXX")"
-touch "$TEMP_ROOT/.aion-owner-acceptance"
-SANDBOX="$TEMP_ROOT/repository"
-git clone --quiet --no-hardlinks --no-checkout "$ROOT" "$SANDBOX"
-git -C "$SANDBOX" checkout --quiet --detach "$REVISION"
-[[ "$(git -C "$SANDBOX" rev-parse HEAD)" == "$REVISION" ]] \
-  || fail_stage "Isolated checkout revision mismatch."
-pass_stage "$CURRENT_STAGE"
+if (( LIVE_MODE || ! OFFLINE_REUSED )); then
+  TEMP_ROOT="$(mktemp -d "${TEMP_BASE%/}/aion-owner-acceptance.XXXXXX")"
+  touch "$TEMP_ROOT/.aion-owner-acceptance"
+  SANDBOX="$TEMP_ROOT/repository"
+  git clone --quiet --no-hardlinks --no-checkout "$ROOT" "$SANDBOX"
+  git -C "$SANDBOX" checkout --quiet --detach "$REVISION"
+  [[ "$(git -C "$SANDBOX" rev-parse HEAD)" == "$REVISION" ]] \
+    || fail_stage "Isolated checkout revision mismatch."
+  pass_stage "$CURRENT_STAGE"
+else
+  echo "[STAGE SKIP] isolated_checkout: no stage requires it"
+fi
 
 CURRENT_STAGE="offline_life_trial"
 DEFAULT_CACHE_ROOT="${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}"
@@ -270,15 +287,25 @@ PY
 )"
 [[ "$VENV_PATH/" != "$ROOT_PATH/"* ]] \
   || fail_stage "Acceptance venv must be outside the repository."
-(
-  cd "$SANDBOX"
-  export AION_TEST_VENV_DIR="$VENV_PATH"
-  export AION_TEST_REPORT_DIR="$TEMP_ROOT/full-life-reports"
-  export AION_LIVE_TEST=0
-  unset AION_API_KEY AION_MODELS AION_MODEL AION_EXPECTED_SHA
-  bash scripts/cloud_check.sh
-)
-pass_stage "$CURRENT_STAGE"
+if (( OFFLINE_REUSED && LIVE_MODE )) && [[ ! -x "$VENV_PATH/bin/python" ]]; then
+  OFFLINE_REUSED=0
+  echo "[STAGE PENDING] offline_life_trial: test Python environment is unavailable"
+fi
+if (( ! OFFLINE_REUSED )); then
+  OFFLINE_LOG="$REPORT_DIR/offline-${STAMP}-$$.log"
+  (
+    cd "$SANDBOX"
+    export AION_TEST_VENV_DIR="$VENV_PATH"
+    export AION_TEST_REPORT_DIR="$TEMP_ROOT/full-life-reports"
+    export AION_LIVE_TEST=0
+    unset AION_API_KEY AION_MODELS AION_MODEL AION_EXPECTED_SHA
+    bash scripts/cloud_check.sh
+  ) 2>&1 | tee "$OFFLINE_LOG"
+  "$BOOTSTRAP_PYTHON" tools/acceptance_checkpoint.py record \
+    "$REPORT_DIR" "$REVISION" "$REVISION_SCOPE" \
+    "$PRIMARY_TRUTH_BEFORE" "$PRIMARY_RUNTIME_BEFORE" "$OFFLINE_LOG"
+  pass_stage "$CURRENT_STAGE"
+fi
 
 LIVE_RESULT="SKIP"
 if ((LIVE_MODE)); then

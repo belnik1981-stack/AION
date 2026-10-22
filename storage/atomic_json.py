@@ -323,13 +323,24 @@ def append_jsonl_record(
     target.parent.mkdir(parents=True, exist_ok=True)
     with _storage_lock(target):
         duplicate = False
+        conflict = False
 
         def find_duplicate(existing: dict[str, Any], _line_number: int) -> None:
-            nonlocal duplicate
+            nonlocal duplicate, conflict
             if unique_field is not None and existing.get(unique_field) == unique_value:
-                duplicate = True
+                # JSON booleans and numbers must remain distinct: Python treats
+                # True == 1, but these are conflicting audit event contents.
+                existing_payload = (
+                    json.dumps(existing, ensure_ascii=False, sort_keys=True) + "\n"
+                ).encode("utf-8")
+                if existing_payload == payload:
+                    duplicate = True
+                else:
+                    conflict = True
 
         _scan_jsonl_unlocked(target, find_duplicate)
+        if conflict:
+            raise JsonStorageError("Audit ID already exists with different content")
         if duplicate:
             return False
 

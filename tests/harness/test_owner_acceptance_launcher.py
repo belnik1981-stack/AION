@@ -42,12 +42,16 @@ with tempfile.TemporaryDirectory() as temp_dir:
     base = Path(temp_dir)
     project = base / "project"
     (project / "scripts").mkdir(parents=True)
+    (project / "tools").mkdir(parents=True)
     (project / "knowledge" / "truth").mkdir(parents=True)
     (project / "knowledge" / "episodic").mkdir(parents=True)
     shutil.copy2(LAUNCHER, project / "scripts" / LAUNCHER.name)
+    shutil.copy2(ROOT / "tools" / "acceptance_checkpoint.py", project / "tools" / "acceptance_checkpoint.py")
     (project / "scripts" / "cloud_check.sh").write_text(
         "#!/usr/bin/env bash\nset -eu\n"
         "if printenv AION_EXPECTED_SHA >/dev/null; then exit 99; fi\n"
+        "echo run >> \"$AION_FAKE_OFFLINE_COUNT\"\n"
+        "echo '[PASS] Truth unchanged after offline tests'\n"
         "echo '[PASS] OFFLINE LIFE TRIAL'\n",
         encoding="utf-8",
     )
@@ -76,6 +80,7 @@ with tempfile.TemporaryDirectory() as temp_dir:
             "AION_ACCEPTANCE_VENV_DIR": str(base / "venv-outside-project"),
             "TMPDIR": str(temp_root),
             "AION_EXPECTED_SHA": fixture_sha,
+            "AION_FAKE_OFFLINE_COUNT": str(base / "offline-count.txt"),
         }
     )
     before = memory.read_bytes()
@@ -92,6 +97,36 @@ with tempfile.TemporaryDirectory() as temp_dir:
     assert memory.read_bytes() == before
     assert list(report_dir.glob("owner-acceptance-*.json"))
     assert not list(temp_root.glob("aion-owner-acceptance.*"))
+    assert (base / "offline-count.txt").read_text().count("run") == 1
+
+    resumed = run("scripts/owner_acceptance_test.sh", "--local-revision", cwd=project, env=env)
+    assert resumed.returncode == 0, resumed.stdout
+    assert "[STAGE REUSED] offline_life_trial" in resumed.stdout
+    assert (base / "offline-count.txt").read_text().count("run") == 1
+
+    checkpoint_log = next(report_dir.glob("offline-*.log"))
+    checkpoint_log.write_text("corrupted evidence\n", encoding="utf-8")
+    rerun = run("scripts/owner_acceptance_test.sh", "--local-revision", cwd=project, env=env)
+    assert rerun.returncode == 0, rerun.stdout
+    assert "[STAGE PENDING] offline_life_trial" in rerun.stdout
+    assert (base / "offline-count.txt").read_text().count("run") == 2
+
+    runtime_state = project / "state.json"
+    runtime_state.write_text('{"changed": true}\n', encoding="utf-8")
+    changed_env = run("scripts/owner_acceptance_test.sh", "--local-revision", cwd=project, env=env)
+    assert changed_env.returncode == 0, changed_env.stdout
+    assert "[STAGE PENDING] offline_life_trial" in changed_env.stdout
+    assert (base / "offline-count.txt").read_text().count("run") == 3
+    runtime_state.unlink()
+
+    external_history = base / "external-history.json"
+    external_history.write_text('[{"outside": true}]\n', encoding="utf-8")
+    runtime_link = project / "knowledge" / "episodic" / "external.json"
+    runtime_link.symlink_to(external_history)
+    linked_data = run("scripts/owner_acceptance_test.sh", "--local-revision", cwd=project, env=env)
+    assert linked_data.returncode != 0
+    assert "Symlinked protected runtime data" in linked_data.stdout
+    runtime_link.unlink()
 
     protected_report_env = dict(env)
     protected_report_env["AION_TEST_REPORT_DIR"] = str(
