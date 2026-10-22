@@ -8,6 +8,8 @@ import sys
 from urllib.error import HTTPError, URLError
 
 from core.pipeline import _raw_answer_attempt, run_pipeline
+from core.runtime_budget import ExecutionBudget, configured_call_limit, use_budget
+from core.truth import get_execution_limits
 from tools.live_free_pipeline_trial import _hash_truth
 from tools.select_free_openrouter_model import catalog_candidates
 
@@ -153,7 +155,13 @@ def execute():
         # answers downstream, avoiding a redundant request after preflight.
         os.environ["AION_EVIDENCE_BUNDLE"] = ""
         os.environ["AION_DISABLE_REASONING"] = "0"
-        raw_answers = _collect_two_raw_answers(candidates, explicit=bool(requested))
+        limits = get_execution_limits()
+        budget = ExecutionBudget(
+            timeout_seconds=float(limits["multi_model_timeout_seconds"]),
+            max_calls=configured_call_limit(),
+        )
+        with use_budget(budget):
+            raw_answers = _collect_two_raw_answers(candidates, explicit=bool(requested))
         if raw_answers is None:
             print("[FAIL] MULTI RAW PREFLIGHT; role execution not started.", flush=True)
             return 4
@@ -162,7 +170,8 @@ def execute():
         os.environ["AION_MODELS"] = ",".join(two)
         print("[PASS] TWO DISTINCT MODEL IDS:", ", ".join(two), flush=True)
         print("[MODE] Two complete initial answers reused; one comparison round.", flush=True)
-        result = run_pipeline(TEST_TASK, initial_raw_answers=raw_answers)
+        with use_budget(budget):
+            result = run_pipeline(TEST_TASK, initial_raw_answers=raw_answers)
         if not isinstance(result, dict):
             print("[FAIL] Pipeline returned invalid result.", flush=True)
             return 1
@@ -188,9 +197,10 @@ def execute():
             return 1
         if (result.get("mode") != "multi_model_role_rotation"
                 or result.get("independent_model_count") != 2
+                or result.get("independent_initial_outputs") != 2
                 or result.get("models") != two
                 or result.get("model_ids_distinct") is not True
-                or len(result.get("raw_answers", {})) != 2):
+                or result.get("raw_answers") != raw_answers):
             print("[FAIL] Model independence contract not met.", flush=True)
             print("[STATUS]", result.get("status", "unknown"), flush=True)
             print("[STAGE]", result.get("stage", "model_contract"), flush=True)

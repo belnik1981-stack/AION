@@ -142,6 +142,35 @@ with TemporaryDirectory() as temp_dir:
         raise AssertionError("JSONL tail without newline must block append")
     assert missing_newline.read_bytes() == original_missing_newline
 
+    # Idempotent replay is allowed only for the identical audit event.
+    collision_log = root / "collision.jsonl"
+    original_event = {"event_id": "same-id", "state": "prepared"}
+    assert append_jsonl_record(collision_log, original_event, unique_field="event_id")
+    assert not append_jsonl_record(collision_log, original_event, unique_field="event_id")
+    before_collision = collision_log.read_bytes()
+    try:
+        append_jsonl_record(
+            collision_log, {"event_id": "same-id", "state": "committed"},
+            unique_field="event_id",
+        )
+    except JsonStorageError:
+        pass
+    else:
+        raise AssertionError("Conflicting audit event ID must fail closed")
+    assert collision_log.read_bytes() == before_collision
+    numeric_collision = root / "numeric-collision.jsonl"
+    assert append_jsonl_record(
+        numeric_collision, {"event_id": "typed", "value": True}, unique_field="event_id"
+    )
+    try:
+        append_jsonl_record(
+            numeric_collision, {"event_id": "typed", "value": 1}, unique_field="event_id"
+        )
+    except JsonStorageError:
+        pass
+    else:
+        raise AssertionError("JSON boolean and number must not be treated as one event")
+
     # Existing AION state consumers use the same storage contract.
     history = root / "history.json"
     knowledge = root / "knowledge.json"

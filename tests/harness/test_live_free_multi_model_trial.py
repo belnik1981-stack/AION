@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tools import live_free_multi_model_trial as multi
+from core.runtime_budget import current_budget
 
 ONE = "dots-studio/dots-3-note-preview:free"
 TWO = "nvidia/second-test:free"
@@ -122,15 +123,25 @@ answers, calls, log = collect({
 assert answers is None and calls == [TWO] and "invalid_response" in log
 
 
-def run_driver(status="ok", *, same_raw=False, bad_model_contract=False):
+def run_driver(status="ok", *, same_raw=False, bad_model_contract=False,
+               changed_raw=False):
     seen = []
+    budget_used = [None]
     def raw(task, mid):
+        budget = current_budget()
+        assert budget is not None
+        if budget_used[0] is None:
+            budget_used[0] = budget
+        assert budget is budget_used[0]
+        budget.reserve_call()
         seen.append(("raw", mid, task))
         return {
             "status": "ok",
             "answer": "Same answer" if same_raw else "Answer of " + mid,
         }
     def pipeline(task, *, initial_raw_answers=None):
+        assert current_budget() is budget_used[0]
+        assert current_budget().calls_used == 2
         models = os.environ["AION_MODELS"].split(",")
         seen.append(("pipeline", tuple(models), task))
         assert os.environ["AION_FREE_ONLY"] == "1"
@@ -147,7 +158,8 @@ def run_driver(status="ok", *, same_raw=False, bad_model_contract=False):
             "independent_initial_outputs": 2,
             "model_ids_distinct": True,
             "models": models,
-            "raw_answers": initial_raw_answers,
+            "raw_answers": {**initial_raw_answers, models[0]: "changed"}
+            if changed_raw else initial_raw_answers,
             "raw_diagnostics": {mid: {"status": "ok", "reused": True} for mid in models},
             "truth_verified": False,
             "verification_scope": "llm_review_only",
@@ -196,6 +208,9 @@ assert code == 1 and "[FAIL] MULTI MODEL PIPELINE" in log
 assert "[STAGE] verifier" in log and "[DETAIL] Verification failed" in log
 
 code, calls, log = run_driver(bad_model_contract=True)
+assert code == 1 and "[FAIL] Model independence contract not met." in log
+
+code, calls, log = run_driver(changed_raw=True)
 assert code == 1 and "[FAIL] Model independence contract not met." in log
 
 
