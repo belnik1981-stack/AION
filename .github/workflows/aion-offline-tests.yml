@@ -58,6 +58,9 @@ jobs:
       - name: Validate startup shell
         run: sh -n start_app.sh
 
+      - name: Validate Termux widget launchers
+        run: bash -n scripts/install_termux_widget.sh scripts/termux_widget_start.sh
+
       - name: Run architecture harness
         run: python tests/harness/test_current_architecture.py
 
