@@ -5,13 +5,26 @@ root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 url="http://localhost:8080"
 
 aion_is_ready() {
-    python3 - <<'PY' >/dev/null 2>&1
+    python3 - "$root" <<'PY' >/dev/null 2>&1
+from hashlib import sha256
+from pathlib import Path
+import sys
 from urllib.request import ProxyHandler, build_opener
+expected = sha256(str(Path(sys.argv[1]).resolve()).encode("utf-8")).hexdigest()[:16]
 opener = build_opener(ProxyHandler({}))
 with opener.open("http://127.0.0.1:8080/", timeout=1) as response:
     page = response.read(12000)
-    if response.status != 200 or b"AION Control Panel" not in page:
+    if (response.status != 200 or b"AION Control Panel" not in page
+            or response.headers.get("X-AION-Instance") != expected):
         raise SystemExit(1)
+PY
+}
+
+port_is_in_use() {
+    python3 - <<'PY' >/dev/null 2>&1
+import socket
+with socket.create_connection(("127.0.0.1", 8080), timeout=1):
+    pass
 PY
 }
 
@@ -26,6 +39,10 @@ open_browser() {
 if aion_is_ready; then
     open_browser
     exit 0
+fi
+if port_is_in_use; then
+    printf '[AION] Порт 8080 занят другим сервером или AION ещё обрабатывает запрос. Остановите прежний сервер.\n' >&2
+    exit 1
 fi
 
 printf '[AION] Для реального вопроса нужен ваш ключ OpenRouter.\n'

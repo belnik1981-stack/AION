@@ -61,6 +61,9 @@ jobs:
       - name: Validate Termux widget launchers
         run: bash -n scripts/install_termux_widget.sh scripts/termux_widget_start.sh
 
+      - name: Preserve existing Termux widget shortcuts
+        run: python tests/harness/test_termux_widget_installer.py
+
       - name: Run architecture harness
         run: python tests/harness/test_current_architecture.py
 

@@ -1,4 +1,5 @@
 import html
+import hashlib
 import json
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -17,6 +18,7 @@ from memory.session import (
 PORT = 8080
 MAX_POST_BYTES = 64_000
 ROOT = Path(__file__).resolve().parent
+INSTANCE_ID = hashlib.sha256(str(ROOT.resolve()).encode("utf-8")).hexdigest()[:16]
 PIPELINE_STATE_FILE = ROOT / "pipeline_state.json"
 
 HTML_TEMPLATE = """<!DOCTYPE html>
@@ -39,6 +41,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 </head>
 <body>
     <h2>AION Control Panel</h2>
+    {{RUN_STATUS}}
 
     <div class="card">
         <h3>[CONTROL — single model / single cycle]</h3>
@@ -91,7 +94,7 @@ def _safe_display(loader, stage: str) -> dict:
         return _safe_runtime_error(stage)
 
 
-def render_home() -> str:
+def render_home(run_status: str = "") -> str:
     limits = json.dumps(get_execution_limits(), indent=2, ensure_ascii=False)
     state = json.dumps(_safe_display(load_state, "state_load"), indent=2, ensure_ascii=False)
     pipeline_state = json.dumps(
@@ -101,8 +104,13 @@ def render_home() -> str:
     )
     session_state = _safe_display(lambda: session_snapshot(limit=5), "session_load")
     session_state = json.dumps(session_state, indent=2, ensure_ascii=False)
+    notice = (
+        '<div class="card" role="status">' + html.escape(run_status) + '</div>'
+        if run_status else ""
+    )
     return (
         HTML_TEMPLATE
+        .replace("{{RUN_STATUS}}", notice)
         .replace("{{LIMITS}}", html.escape(limits))
         .replace("{{STATE}}", html.escape(state))
         .replace("{{PIPELINE_STATE}}", html.escape(pipeline_state))
@@ -124,13 +132,19 @@ class AionHandler(BaseHTTPRequestHandler):
         return urllib.parse.parse_qs(post_data)
 
     def do_GET(self):
-        if self.path in ["/", "/index.html"]:
+        if self.path in ["/", "/index.html", "/?cycle_ok=1", "/?cycle_error=1"]:
+            notice = ""
+            if self.path == "/?cycle_ok=1":
+                notice = "Запрос завершён. Проверьте ответ и новую запись памяти ниже."
+            elif self.path == "/?cycle_error=1":
+                notice = "Запрос завершился ошибкой. Ответ ниже относится к предыдущему успешному запросу."
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("X-AION-Instance", INSTANCE_ID)
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'unsafe-inline'; form-action 'self'")
             self.end_headers()
-            self.wfile.write(render_home().encode("utf-8"))
+            self.wfile.write(render_home(notice).encode("utf-8"))
         else:
             self.send_response(404)
             self.end_headers()
@@ -143,10 +157,12 @@ class AionHandler(BaseHTTPRequestHandler):
             user_prompt = parsed_data.get("user_prompt", [""])[0]
             try:
                 run_cycle(user_prompt if user_prompt.strip() else None)
+                location = "/?cycle_ok=1"
             except Exception:
                 print("[ERROR] Cycle execution failed; details hidden")
+                location = "/?cycle_error=1"
             self.send_response(303)
-            self.send_header("Location", "/")
+            self.send_header("Location", location)
             self.end_headers()
 
         elif self.path == "/pipeline":

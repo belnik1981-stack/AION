@@ -53,7 +53,7 @@ with TemporaryDirectory() as temp_dir:
         server, "run_pipeline", side_effect=fake_pipeline
     ), patch.object(
         server, "run_cycle", side_effect=fake_cycle
-    ):
+    ) as cycle_mock:
         httpd = HTTPServer(("127.0.0.1", 0), QuietAionHandler)
         assert httpd.server_address[0] == "127.0.0.1"
         port = httpd.server_address[1]
@@ -63,6 +63,7 @@ with TemporaryDirectory() as temp_dir:
             status, headers, body = request(port, "GET", "/")
             assert status == 200
             assert headers["X-Content-Type-Options"] == "nosniff"
+            assert headers["X-AION-Instance"] == server.INSTANCE_ID
             assert "default-src 'self'" in headers["Content-Security-Policy"]
             assert b"AION Control Panel" in body
 
@@ -104,8 +105,19 @@ with TemporaryDirectory() as temp_dir:
                     "Content-Length": str(len(run_form.encode("utf-8"))),
                 },
             )
-            assert status == 303 and headers["Location"] == "/"
+            assert status == 303 and headers["Location"] == "/?cycle_ok=1"
             assert cycle_calls == ["single control"]
+
+            cycle_mock.side_effect = RuntimeError("provider failed")
+            status, headers, _ = request(
+                port, "POST", "/run", body=run_form,
+                headers={"Content-Type": "application/x-www-form-urlencoded",
+                         "Content-Length": str(len(run_form.encode("utf-8")))},
+            )
+            assert status == 303 and headers["Location"] == "/?cycle_error=1"
+            status, _, body = request(port, "GET", "/?cycle_error=1")
+            assert status == 200
+            assert "Запрос завершился ошибкой".encode("utf-8") in body
 
             connection = HTTPConnection("127.0.0.1", port, timeout=3)
             try:
