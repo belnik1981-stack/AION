@@ -35,6 +35,7 @@ for test_file in \
   tests/harness/test_provider_resilience.py \
   tests/harness/test_runtime_budget.py \
   tests/harness/test_crash_safe_storage.py \
+  tests/harness/test_session_persistence.py \
   tests/harness/test_episodic_memory_archive.py \
   tests/harness/test_owner_acceptance_launcher.py \
   tests/harness/test_sensitive_data_redaction.py \

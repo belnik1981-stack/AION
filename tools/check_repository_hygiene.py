@@ -66,6 +66,7 @@ def _path_findings(relative: Path) -> list[Finding]:
         or path_text.startswith("knowledge/long_term/")
         or path_text.startswith("knowledge/candidates/")
         or path_text.startswith("knowledge/adaptive/")
+        or path_text.startswith("knowledge/session/")
         or path_text.startswith("logs/")
     ):
         findings.append(Finding(path_text, "tracked_runtime_or_user_state"))

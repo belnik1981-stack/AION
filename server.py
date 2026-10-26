@@ -10,6 +10,9 @@ from core.pipeline import run_pipeline
 from storage.atomic_json import atomic_write_json, load_json
 from storage.atomic_json import JsonStorageError
 from security.redaction import TextSafetyError, redact_structure
+from memory.session import (
+    SessionStorageError, recover_interrupted, snapshot as session_snapshot,
+)
 
 PORT = 8080
 MAX_POST_BYTES = 64_000
@@ -55,6 +58,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     <div class="card"><h3>[CURRENT STATE / LAST RESPONSE — single cycle]</h3><pre>{{STATE}}</pre></div>
     <div class="card"><h3>[LAST PIPELINE RESULT]</h3><pre>{{PIPELINE_STATE}}</pre></div>
+    <div class="card"><h3>[OPERATIONAL MEMORY]</h3><pre>{{SESSION_STATE}}</pre></div>
     <div class="card"><h3>[EXECUTION LIMITS]</h3><pre>{{LIMITS}}</pre></div>
 </body>
 </html>
@@ -83,7 +87,7 @@ def _safe_display(loader, stage: str) -> dict:
         value = loader()
         safe, _ = redact_structure(value)
         return safe
-    except (JsonStorageError, TextSafetyError, TypeError):
+    except (JsonStorageError, SessionStorageError, TextSafetyError, TypeError):
         return _safe_runtime_error(stage)
 
 
@@ -95,11 +99,14 @@ def render_home() -> str:
         indent=2,
         ensure_ascii=False,
     )
+    session_state = _safe_display(lambda: session_snapshot(limit=5), "session_load")
+    session_state = json.dumps(session_state, indent=2, ensure_ascii=False)
     return (
         HTML_TEMPLATE
         .replace("{{LIMITS}}", html.escape(limits))
         .replace("{{STATE}}", html.escape(state))
         .replace("{{PIPELINE_STATE}}", html.escape(pipeline_state))
+        .replace("{{SESSION_STATE}}", html.escape(session_state))
     )
 
 
@@ -170,6 +177,7 @@ class AionHandler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    recover_interrupted()
     server = HTTPServer(("127.0.0.1", PORT), AionHandler)
     print(f"[AION INTERACTIVE SERVER STARTED] http://localhost:{PORT}")
     try:

@@ -141,6 +141,7 @@ targets = [
     root / "state.json",
     root / "pipeline_state.json",
     root / "knowledge" / "episodic",
+    root / "knowledge" / "session",
     root / "knowledge" / "long_term",
     root / "knowledge" / "adaptive",
     root / "knowledge" / "candidates",

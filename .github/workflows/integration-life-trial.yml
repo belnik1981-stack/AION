@@ -44,6 +44,8 @@ jobs:
         run: PYTHONPATH=. python tests/harness/test_runtime_budget.py
       - name: Verify crash-safe JSON storage without network
         run: PYTHONPATH=. python tests/harness/test_crash_safe_storage.py
+      - name: Verify operational session restart without network
+        run: PYTHONPATH=. python tests/harness/test_session_persistence.py
       - name: Verify sensitive data boundaries without network
         run: PYTHONPATH=. python tests/harness/test_sensitive_data_redaction.py
       - name: Verify claim and disagreement registry without network

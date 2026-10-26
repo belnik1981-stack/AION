@@ -9,6 +9,7 @@ from core.llm import ask_llm
 from core.runtime_budget import ExecutionBudget, configured_call_limit, use_budget
 from core.truth import get_execution_limits, get_principles
 from security.redaction import redact_sensitive, redact_structure
+from memory.session import apply_profile, begin_task, finish_task
 from storage.atomic_json import atomic_write_json, load_json
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -31,6 +32,19 @@ def build_prompt(state: dict, user_input: str | None = None) -> str:
     return prompt
 
 def run_cycle(user_input: str | None = None) -> dict:
+    apply_profile()
+    task_id = begin_task(user_input or "Продолжить предыдущий контекст", "cycle")
+    try:
+        return _run_cycle(user_input, task_id)
+    except Exception:
+        try:
+            finish_task(task_id, {"status": "error", "stage": "cycle_exception"})
+        except Exception:
+            pass
+        raise
+
+
+def _run_cycle(user_input: str | None, task_id: str) -> dict:
     state = load_state()
     prompt = build_prompt(state, user_input)
     limits = get_execution_limits()
@@ -51,4 +65,5 @@ def run_cycle(user_input: str | None = None) -> dict:
     
     safe_state, _ = redact_structure(state)
     save_state(safe_state)
+    finish_task(task_id, safe_state)
     return safe_state
