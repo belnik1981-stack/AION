@@ -84,8 +84,25 @@ os._exit(0)
     )
     interrupted_id = child.stdout.strip()
 
+    # A different Python process performs startup recovery and reads the state.
+    restart_code = """
+import json, sys
+from pathlib import Path
+from memory import session
+session.DB_FILE = Path(sys.argv[1])
+session.recover_interrupted()
+print(json.dumps(session.snapshot(), ensure_ascii=False))
+"""
+    restarted = subprocess.run(
+        [sys.executable, "-c", restart_code, str(db)], check=True,
+        text=True, capture_output=True,
+    )
+    restarted_state = json.loads(restarted.stdout)
+    assert restarted_state["tasks"][0]["id"] == interrupted_id
+    assert restarted_state["tasks"][0]["status"] == "interrupted"
+
     with patch.object(session, "DB_FILE", db):
-        assert session.recover_interrupted() == 1
+        assert session.recover_interrupted() == 0
         restored = session.snapshot()
         assert restored["profile"]["AION_MODEL"] == "example/model:free"
         assert restored["tasks"][0]["id"] == interrupted_id
