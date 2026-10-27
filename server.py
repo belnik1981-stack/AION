@@ -14,6 +14,7 @@ from security.redaction import TextSafetyError, redact_structure
 from memory.session import (
     SessionStorageError, recover_interrupted, snapshot as session_snapshot,
 )
+from providers.base import ProviderHTTPError, ProviderRateLimitError, ProviderTruncatedError
 
 PORT = 8080
 MAX_POST_BYTES = 64_000
@@ -46,10 +47,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="card">
         <h3>[CONTROL — single model / single cycle]</h3>
         <form action="/run" method="POST">
-            <textarea name="user_prompt" placeholder="Контрольный запрос одной модели..."></textarea>
-            <button type="submit">Запустить контрольный цикл</button>
+            <textarea name="user_prompt" placeholder="Напишите вопрос для AION..."></textarea>
+            <button type="submit">Задать вопрос</button>
         </form>
     </div>
+    {{LAST_ANSWER}}
 
     <div class="card">
         <h3>[AION PIPELINE — multi-model role rotation when AION_MODELS is set]</h3>
@@ -96,14 +98,36 @@ def _safe_display(loader, stage: str) -> dict:
 
 def render_home(run_status: str = "") -> str:
     limits = json.dumps(get_execution_limits(), indent=2, ensure_ascii=False)
-    state = json.dumps(_safe_display(load_state, "state_load"), indent=2, ensure_ascii=False)
+    state_data = _safe_display(load_state, "state_load")
+    state = json.dumps(state_data, indent=2, ensure_ascii=False)
     pipeline_state = json.dumps(
         _safe_display(load_pipeline_state, "pipeline_state_load"),
         indent=2,
         ensure_ascii=False,
     )
-    session_state = _safe_display(lambda: session_snapshot(limit=5), "session_load")
-    session_state = json.dumps(session_state, indent=2, ensure_ascii=False)
+    session_data = _safe_display(lambda: session_snapshot(limit=5), "session_load")
+    session_state = json.dumps(session_data, indent=2, ensure_ascii=False)
+    last_answer = ""
+    if isinstance(state_data, dict) and state_data.get("last_answer"):
+        prompt = str(state_data.get("last_user_prompt", ""))
+        answer = str(state_data["last_answer"])
+        task_id = ""
+        if isinstance(session_data, dict):
+            for task in session_data.get("tasks", []):
+                if (task.get("kind") == "cycle" and task.get("status") == "completed"
+                        and task.get("prompt") == prompt
+                        and isinstance(task.get("result"), dict)
+                        and task["result"].get("last_answer") == answer):
+                    task_id = str(task["id"])
+                    break
+        last_answer = (
+            '<div class="card"><h3>Последний сохранённый ответ</h3>'
+            '<p>После перезапуска сравните вопрос, ответ и ID записи.</p>'
+            '<p>Вопрос:</p><pre>' + html.escape(prompt) + '</pre>'
+            '<p>Ответ:</p><pre>' + html.escape(answer) + '</pre>'
+            '<p>ID записи памяти: ' + html.escape(task_id or "нет подтверждённой записи")
+            + '</p></div>'
+        )
     notice = (
         '<div class="card" role="status">' + html.escape(run_status) + '</div>'
         if run_status else ""
@@ -111,6 +135,7 @@ def render_home(run_status: str = "") -> str:
     return (
         HTML_TEMPLATE
         .replace("{{RUN_STATUS}}", notice)
+        .replace("{{LAST_ANSWER}}", last_answer)
         .replace("{{LIMITS}}", html.escape(limits))
         .replace("{{STATE}}", html.escape(state))
         .replace("{{PIPELINE_STATE}}", html.escape(pipeline_state))
@@ -132,12 +157,20 @@ class AionHandler(BaseHTTPRequestHandler):
         return urllib.parse.parse_qs(post_data)
 
     def do_GET(self):
-        if self.path in ["/", "/index.html", "/?cycle_ok=1", "/?cycle_error=1"]:
+        if self.path in ["/", "/index.html", "/?cycle_ok=1", "/?cycle_error=1",
+                         "/?cycle_error=401", "/?cycle_error=429",
+                         "/?cycle_error=truncated"]:
             notice = ""
             if self.path == "/?cycle_ok=1":
                 notice = "Запрос завершён. Проверьте ответ и новую запись памяти ниже."
             elif self.path == "/?cycle_error=1":
                 notice = "Запрос завершился ошибкой. Ответ ниже относится к предыдущему успешному запросу."
+            elif self.path == "/?cycle_error=401":
+                notice = "HTTP 401: ключ отклонён. Ответ ниже относится к предыдущему запросу."
+            elif self.path == "/?cycle_error=429":
+                notice = "HTTP 429: лимит запросов. Не повторяйте вопрос сразу. Ответ ниже — предыдущий."
+            elif self.path == "/?cycle_error=truncated":
+                notice = "Ответ модели усечён и не сохранён как успешный."
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("X-AION-Instance", INSTANCE_ID)
@@ -158,6 +191,12 @@ class AionHandler(BaseHTTPRequestHandler):
             try:
                 run_cycle(user_prompt if user_prompt.strip() else None)
                 location = "/?cycle_ok=1"
+            except ProviderRateLimitError:
+                location = "/?cycle_error=429"
+            except ProviderHTTPError as exc:
+                location = "/?cycle_error=401" if exc.status_code == 401 else "/?cycle_error=1"
+            except ProviderTruncatedError:
+                location = "/?cycle_error=truncated"
             except Exception:
                 print("[ERROR] Cycle execution failed; details hidden")
                 location = "/?cycle_error=1"
