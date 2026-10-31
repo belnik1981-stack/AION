@@ -58,6 +58,12 @@ jobs:
       - name: Validate startup shell
         run: sh -n start_app.sh
 
+      - name: Validate Termux widget launchers
+        run: bash -n scripts/install_termux_widget.sh scripts/termux_widget_start.sh
+
+      - name: Preserve existing Termux widget shortcuts
+        run: python tests/harness/test_termux_widget_installer.py
+
       - name: Run architecture harness
         run: python tests/harness/test_current_architecture.py
 
@@ -108,6 +114,12 @@ jobs:
 
       - name: Run crash-safe storage fault injection
         run: python tests/harness/test_crash_safe_storage.py
+
+      - name: Run operational session restart and recovery
+        run: python tests/harness/test_session_persistence.py
+
+      - name: Verify stable data across checkouts
+        run: python tests/harness/test_stable_runtime_data.py
 
       - name: Run bounded episodic archive regression
         run: python tests/harness/test_episodic_memory_archive.py

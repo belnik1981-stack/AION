@@ -9,6 +9,7 @@ from urllib.parse import urlencode
 from unittest.mock import patch
 
 import server
+from providers.base import ProviderHTTPError, ProviderRateLimitError
 
 
 class QuietAionHandler(server.AionHandler):
@@ -45,15 +46,22 @@ with TemporaryDirectory() as temp_dir:
         cycle_calls.append(prompt)
         return {"status": "idle"}
 
+    saved_prompt = "single <question>"
+    saved_answer = "four <answer>"
     with patch.object(server, "PIPELINE_STATE_FILE", pipeline_state), patch.object(
-        server, "load_state", return_value={"status": "idle"}
+        server, "load_state", return_value={"status": "idle", "last_user_prompt": saved_prompt,
+                                           "last_answer": saved_answer}
+    ), patch.object(
+        server, "session_snapshot", return_value={"status": "ok", "tasks": [{
+            "id": "task-123", "kind": "cycle", "status": "completed", "prompt": saved_prompt,
+            "result": {"last_answer": saved_answer}}]}
     ), patch.object(
         server, "get_execution_limits", return_value={"max_iterations": 2}
     ), patch.object(
         server, "run_pipeline", side_effect=fake_pipeline
     ), patch.object(
         server, "run_cycle", side_effect=fake_cycle
-    ):
+    ) as cycle_mock:
         httpd = HTTPServer(("127.0.0.1", 0), QuietAionHandler)
         assert httpd.server_address[0] == "127.0.0.1"
         port = httpd.server_address[1]
@@ -63,8 +71,14 @@ with TemporaryDirectory() as temp_dir:
             status, headers, body = request(port, "GET", "/")
             assert status == 200
             assert headers["X-Content-Type-Options"] == "nosniff"
+            assert headers["X-AION-Instance"] == server.INSTANCE_ID
+            assert headers["X-AION-Data"] == server.DATA_ID
             assert "default-src 'self'" in headers["Content-Security-Policy"]
             assert b"AION Control Panel" in body
+            assert "Задать вопрос".encode("utf-8") in body
+            assert b"single &lt;question&gt;" in body
+            assert b"four &lt;answer&gt;" in body
+            assert b"task-123" in body
 
             status, _, _ = request(port, "GET", "/missing")
             assert status == 404
@@ -104,8 +118,33 @@ with TemporaryDirectory() as temp_dir:
                     "Content-Length": str(len(run_form.encode("utf-8"))),
                 },
             )
-            assert status == 303 and headers["Location"] == "/"
+            assert status == 303 and headers["Location"] == "/?cycle_ok=1"
             assert cycle_calls == ["single control"]
+
+            cycle_mock.side_effect = RuntimeError("provider failed")
+            status, headers, _ = request(
+                port, "POST", "/run", body=run_form,
+                headers={"Content-Type": "application/x-www-form-urlencoded",
+                         "Content-Length": str(len(run_form.encode("utf-8")))},
+            )
+            assert status == 303 and headers["Location"] == "/?cycle_error=1"
+            status, _, body = request(port, "GET", "/?cycle_error=1")
+            assert status == 200
+            assert "Запрос завершился ошибкой".encode("utf-8") in body
+
+            for exception, error_path, message in (
+                (ProviderHTTPError(401, "safe"), "/?cycle_error=401", "HTTP 401"),
+                (ProviderRateLimitError("safe"), "/?cycle_error=429", "HTTP 429"),
+            ):
+                cycle_mock.side_effect = exception
+                status, headers, _ = request(
+                    port, "POST", "/run", body=run_form,
+                    headers={"Content-Type": "application/x-www-form-urlencoded",
+                             "Content-Length": str(len(run_form.encode("utf-8")))},
+                )
+                assert status == 303 and headers["Location"] == error_path
+                status, _, body = request(port, "GET", error_path)
+                assert status == 200 and message.encode("utf-8") in body
 
             connection = HTTPConnection("127.0.0.1", port, timeout=3)
             try:

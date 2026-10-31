@@ -14,7 +14,6 @@ fi
 
 export AION_PROVIDER="${AION_PROVIDER:-openai_compatible}"
 export AION_API_URL="${AION_API_URL:-https://openrouter.ai/api/v1}"
-export AION_MODEL="${AION_MODEL:-openrouter/free}"
 export AION_MAX_TOKENS="${AION_MAX_TOKENS:-256}"
 export AION_FREE_ONLY="${AION_FREE_ONLY:-1}"
 
@@ -42,7 +41,7 @@ PY
 
 echo "[AION] API Key Loaded: YES"
 echo "[AION] Free-only mode: $AION_FREE_ONLY"
-echo "[AION] Model: $AION_MODEL"
+echo "[AION] Model: ${AION_MODEL:-stored profile or openrouter/free}"
 echo "[AION] Python: $PYTHON_BIN"
 echo "[AION] Web UI: http://localhost:8080"
 

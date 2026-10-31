@@ -7,6 +7,7 @@ Engine обращается только к этому модулю.
 
 from providers.registry import create_provider
 from core.runtime_budget import current_budget
+from memory.session import apply_profile
 
 
 def ask_llm(prompt: str, max_tokens: int | None = None, model: str | None = None) -> str:
@@ -22,5 +23,6 @@ def ask_llm(prompt: str, max_tokens: int | None = None, model: str | None = None
 
 def llm_status(model: str | None = None) -> dict:
     """Безопасный статус LLM без вывода API-ключа."""
+    apply_profile()
     provider = create_provider(model=model)
     return provider.health()
