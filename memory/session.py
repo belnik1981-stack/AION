@@ -18,10 +18,11 @@ from typing import Any, Iterator
 from uuid import uuid4
 
 from security.redaction import SensitiveDataError, TextSafetyError, redact_sensitive, redact_structure
+from storage.runtime_paths import runtime_root
 
 
 ROOT = Path(__file__).resolve().parent.parent
-DB_FILE = ROOT / "knowledge" / "session" / "session.db"
+DB_FILE = runtime_root(ROOT) / "knowledge" / "session" / "session.db"
 PROFILE_KEYS = frozenset({
     "AION_MODEL", "AION_MODELS", "AION_TIMEOUT", "AION_MAX_LLM_CALLS",
     "AION_PLANNER_TOKENS", "AION_ANALYST_TOKENS", "AION_CRITIC_TOKENS",
@@ -276,6 +277,30 @@ def snapshot(*, limit: int = 20, offset: int = 0) -> dict[str, Any]:
         "checkpoints": [dict(zip(("id", "label", "backup_name", "created_at"), row))
                         for row in checkpoints],
     }
+
+
+def recent_cycle_interactions(*, limit: int = 3) -> list[dict[str, str]]:
+    """Return bounded, completed dialogue turns for the next prompt.
+
+    The operational journal remains an observation, never a source of Truth.
+    Failed and unfinished tasks cannot be presented as prior answers.
+    """
+    if not 1 <= limit <= 10:
+        raise ValueError("limit должен быть 1..10")
+    if not DB_FILE.exists():
+        return []
+    with _connection(create=False) as connection:
+        rows = connection.execute(
+            "SELECT prompt,result_json FROM tasks WHERE kind='cycle' AND status='completed' "
+            "ORDER BY started_at DESC, rowid DESC LIMIT ?", (limit,)
+        ).fetchall()
+    turns = []
+    for prompt, result_json in reversed(rows):
+        result = json.loads(result_json)
+        answer = result.get("last_answer") if isinstance(result, dict) else None
+        if isinstance(answer, str) and answer:
+            turns.append({"user": prompt, "answer": answer})
+    return turns
 
 
 def create_checkpoint(label: str) -> str:

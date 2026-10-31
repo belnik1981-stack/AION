@@ -72,6 +72,7 @@ with TemporaryDirectory() as temp_dir:
             assert status == 200
             assert headers["X-Content-Type-Options"] == "nosniff"
             assert headers["X-AION-Instance"] == server.INSTANCE_ID
+            assert headers["X-AION-Data"] == server.DATA_ID
             assert "default-src 'self'" in headers["Content-Security-Policy"]
             assert b"AION Control Panel" in body
             assert "Задать вопрос".encode("utf-8") in body

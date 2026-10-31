@@ -60,6 +60,32 @@ with TemporaryDirectory() as temporary:
         assert any(item["kind"] == "cycle" and item["status"] == "completed"
                    for item in session.snapshot()["tasks"])
 
+        # A new process must actually put the previous question and answer
+        # into the next model prompt, rather than merely displaying old JSON.
+        continuation_code = """
+import sys
+from pathlib import Path
+from core import engine
+from memory import session
+session.DB_FILE = Path(sys.argv[1])
+engine.STATE_FILE = Path(sys.argv[2])
+def fake_llm(prompt):
+    Path(sys.argv[3]).write_text(prompt, encoding='utf-8')
+    return 'continued answer'
+engine.ask_llm = fake_llm
+engine.run_cycle('What was my previous question?')
+"""
+        prompt_file = root / "continued-prompt.txt"
+        subprocess.run(
+            [sys.executable, "-c", continuation_code, str(db),
+             str(root / "engine.json"), str(prompt_file)],
+            check=True, text=True, capture_output=True,
+        )
+        continued_prompt = prompt_file.read_text(encoding="utf-8")
+        assert "single question" in continued_prompt
+        assert "single answer" in continued_prompt
+        assert "What was my previous question?" in continued_prompt
+
         decision_id = session.record_decision("Owner keeps existing Truth boundary")
         checkpoint_id = session.create_checkpoint("before restart")
         assert decision_id and checkpoint_id

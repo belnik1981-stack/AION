@@ -36,6 +36,7 @@ for test_file in \
   tests/harness/test_runtime_budget.py \
   tests/harness/test_crash_safe_storage.py \
   tests/harness/test_session_persistence.py \
+  tests/harness/test_stable_runtime_data.py \
   tests/harness/test_episodic_memory_archive.py \
   tests/harness/test_owner_acceptance_launcher.py \
   tests/harness/test_termux_widget_installer.py \

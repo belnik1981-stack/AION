@@ -10,6 +10,7 @@ from core.engine import load_state, run_cycle
 from core.pipeline import run_pipeline
 from storage.atomic_json import atomic_write_json, load_json
 from storage.atomic_json import JsonStorageError
+from storage.runtime_paths import runtime_root
 from security.redaction import TextSafetyError, redact_structure
 from memory.session import (
     SessionStorageError, recover_interrupted, snapshot as session_snapshot,
@@ -20,7 +21,8 @@ PORT = 8080
 MAX_POST_BYTES = 64_000
 ROOT = Path(__file__).resolve().parent
 INSTANCE_ID = hashlib.sha256(str(ROOT.resolve()).encode("utf-8")).hexdigest()[:16]
-PIPELINE_STATE_FILE = ROOT / "pipeline_state.json"
+DATA_ID = hashlib.sha256(str(runtime_root(ROOT).resolve()).encode("utf-8")).hexdigest()[:16]
+PIPELINE_STATE_FILE = runtime_root(ROOT) / "pipeline_state.json"
 
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="ru">
@@ -174,6 +176,7 @@ class AionHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("X-AION-Instance", INSTANCE_ID)
+            self.send_header("X-AION-Data", DATA_ID)
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'unsafe-inline'; form-action 'self'")
             self.end_headers()
