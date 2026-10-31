@@ -1,0 +1,23 @@
+name: Reasoning evidence gates (offline)
+on:
+  pull_request:
+    paths:
+      - 'tests/harness/test_reasoning_evidence_gates.py'
+      - '.github/workflows/reasoning-evidence-gates.yml'
+      - 'verification/pipeline.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evidence-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run six deterministic evidence gate checks
+        run: python -m unittest tests.harness.test_reasoning_evidence_gates -v
