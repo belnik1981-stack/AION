@@ -19,6 +19,7 @@ from security.redaction import (
     redact_sensitive,
     redact_structure,
 )
+from storage.runtime_paths import runtime_root
 
 
 class DirectPromotionBlocked(PermissionError):
@@ -30,9 +31,10 @@ def _now() -> str:
 
 
 ROOT = Path(__file__).resolve().parent.parent
-HISTORY_FILE = ROOT / "knowledge" / "episodic" / "history.json"
-EPISODIC_ARCHIVE_FILE = ROOT / "knowledge" / "episodic" / "archive.jsonl"
-LONG_TERM_FILE = ROOT / "knowledge" / "long_term" / "knowledge.json"
+DATA_ROOT = runtime_root(ROOT)
+HISTORY_FILE = DATA_ROOT / "knowledge" / "episodic" / "history.json"
+EPISODIC_ARCHIVE_FILE = DATA_ROOT / "knowledge" / "episodic" / "archive.jsonl"
+LONG_TERM_FILE = DATA_ROOT / "knowledge" / "long_term" / "knowledge.json"
 MAX_ACTIVE_EPISODIC_EVENTS = 128
 MAX_ACTIVE_EPISODIC_BYTES = 8 * 1024 * 1024
 MAX_EPISODIC_EVENT_BYTES = 512 * 1024

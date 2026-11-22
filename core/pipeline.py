@@ -40,6 +40,7 @@ from providers.base import (
 )
 from core.cycle_guard import CycleGuard
 from memory.store import add_episodic_event
+from memory.session import SessionStorageError, apply_profile, begin_task, finish_task
 from storage.atomic_json import JsonStorageError
 from security.redaction import TextSafetyError, redact_sensitive, redact_structure
 
@@ -580,7 +581,7 @@ def _run_pipeline_with_budget(
     return _legacy_pipeline(effective_task, task_type, max_iterations, evidence_meta)
 
 
-def run_pipeline(task: str, *, initial_raw_answers: dict | None = None) -> dict:
+def _run_pipeline(task: str, *, initial_raw_answers: dict | None = None) -> dict:
     limits = get_execution_limits()
     max_iterations = int(limits.get("max_iterations", 2))
     multi_model = len(_models()) >= 2
@@ -635,3 +636,35 @@ def run_pipeline(task: str, *, initial_raw_answers: dict | None = None) -> dict:
         "output": output_redactions,
     }
     return safe_result
+
+
+def run_pipeline(task: str, *, initial_raw_answers: dict | None = None) -> dict:
+    """Record every safe attempt before any provider call and after its result."""
+    try:
+        apply_profile()
+        task_id = begin_task(task, "pipeline")
+    except SessionStorageError:
+        return {
+            "status": "error", "stage": "session_persistence",
+            "detail": "Задача не сохранена; запуск модели отменён.",
+            "truth_verified": False,
+        }
+    try:
+        result = _run_pipeline(task, initial_raw_answers=initial_raw_answers)
+    except Exception:
+        # Keep provider/internal exception text out of the operational journal.
+        try:
+            finish_task(task_id, {"status": "error", "stage": "runtime_exception"})
+        except SessionStorageError:
+            pass
+        raise
+    result["task_id"] = task_id
+    try:
+        finish_task(task_id, result)
+    except SessionStorageError:
+        return {
+            "status": "error", "stage": "session_persistence", "task_id": task_id,
+            "detail": "Результат не подтверждён постоянной памятью.",
+            "truth_verified": False,
+        }
+    return result
